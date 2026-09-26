@@ -22,6 +22,9 @@ jobs:
         !contains(github.event.workflow_run.head_commit.message || '', '[ci skip]')
       }}
     runs-on: ubuntu-latest
+    outputs:
+      released: ${{ steps.semantic-release.outputs.new_release_published }}
+      version: ${{ steps.semantic-release.outputs.new_release_version }}
     steps:
       - name: Generate token
         id: generate-token
@@ -45,6 +48,27 @@ jobs:
         run: npm run bundle
 
       - name: Semantic Release
+        id: semantic-release
         uses: cycjimmy/semantic-release-action@v4
         env:
           GITHUB_TOKEN: ${{ steps.generate-token.outputs.token }}
+
+  notify:
+    name: Notify Release Status
+    needs: release
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      # A successful run without a new release is routine, so keep it quiet.
+      - name: Send Telegram release-status notification
+        uses: pixpilot/notify-action@v1
+        with:
+          status: ${{ needs.release.result == 'success' && needs.release.outputs.released != 'true' && 'skipped' || needs.release.result }}
+          notify-on: success, failure, cancelled
+          title: >-
+            ${{ needs.release.result == 'failure' && 'Chrome extension semantic-release failed'
+            || needs.release.result == 'cancelled' && 'Chrome extension semantic-release cancelled'
+            || needs.release.outputs.released == 'true' && format('Chrome extension semantic-release v{0} published', needs.release.outputs.version)
+            || 'Chrome extension semantic-release skipped' }}
+          telegram-bot-token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          telegram-chat-id: ${{ secrets.TELEGRAM_CHAT_ID }}
