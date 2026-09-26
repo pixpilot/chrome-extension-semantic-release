@@ -1,43 +1,63 @@
+import type { ReleaseOutcome } from './release';
 import * as core from '@actions/core';
 
-import { wait } from './wait';
+import { readInputs } from './inputs';
+import { release } from './release';
+
+const SUMMARY_HEADING_LEVEL = 3;
 
 /**
- * The main function for the action.
- *
- * @returns {Promise<void>} Resolves when the action is complete.
- */
-/**
- * The main function for the action.
- *
- * @returns {Promise<void>} Resolves when the action is complete.
+ * Releases the extension when its commits call for a new version, and
+ * publishes the result as GitHub Actions outputs and a step summary.
  */
 export async function run(): Promise<void> {
   try {
-    const ms = core.getInput('milliseconds');
+    const inputs = readInputs();
+    const outcome = await release(inputs);
 
-    // Log info about the action starting
-    core.info(`Starting GitHub Action with ${ms} milliseconds wait time`);
+    core.setOutput('released', String(outcome.released));
+    core.setOutput('version', outcome.version);
+    core.setOutput('previous-version', outcome.previousVersion);
+    core.setOutput('tag', outcome.tag);
+    core.setOutput('release-type', outcome.type);
+    core.setOutput('notes', outcome.notes);
+    core.setOutput('package-path', outcome.packagePath);
 
-    // Debug logs are only output if the `ACTIONS_STEP_DEBUG` secret is true
-    core.debug(`Waiting ${ms} milliseconds ...`);
-
-    // Log the current timestamp, wait, then log the new timestamp
-    core.debug(new Date().toTimeString());
-    await wait(Number.parseInt(ms, 10));
-    core.debug(new Date().toTimeString());
-
-    // Set outputs for other workflow steps to use
-    core.setOutput('time', new Date().toTimeString());
-
-    // Log completion
-    core.info('GitHub Action completed successfully');
+    await writeSummary(outcome, inputs.dryRun);
   } catch (error) {
-    // Log the error for debugging
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    core.error(`Action failed: ${errorMessage}`);
-
-    // Fail the workflow run if an error occurs
-    if (error instanceof Error) core.setFailed(error.message);
+    core.setFailed(describeError(error));
   }
+}
+
+// semantic-release throws an AggregateError whose message is every inner error's
+// stack trace; the inner messages are what the reader needs.
+function describeError(error: unknown): string {
+  if (error instanceof Error && 'errors' in error && Array.isArray(error.errors)) {
+    return error.errors.map(describeError).join('\n');
+  }
+
+  return error instanceof Error ? error.message : String(error);
+}
+
+async function writeSummary(outcome: ReleaseOutcome, dryRun: boolean): Promise<void> {
+  if (!outcome.version) {
+    core.info('No release: no relevant commits since the last release.');
+    await core.summary
+      .addHeading('No extension release', SUMMARY_HEADING_LEVEL)
+      .addRaw('No commits since the last release call for a new version.')
+      .write();
+    return;
+  }
+
+  const heading = dryRun
+    ? `Dry run: would release ${outcome.tag}`
+    : `Released ${outcome.tag}`;
+
+  core.info(
+    `${heading} (${outcome.type}, previous ${outcome.previousVersion || 'none'})`,
+  );
+  await core.summary
+    .addHeading(heading, SUMMARY_HEADING_LEVEL)
+    .addRaw(outcome.notes)
+    .write();
 }

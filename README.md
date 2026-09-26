@@ -1,289 +1,246 @@
-# Create a TypeScript Action
+# Chrome extension semantic release
 
-> **Note:** This project is a fork of
-> [actions/javascript-action](https://github.com/actions/javascript-action),
-> rewritten and maintained in TypeScript for improved type safety and developer
-> experience.
+This GitHub Action releases a Chrome extension from
+[Conventional Commits](https://www.conventionalcommits.org/). It uses
+[semantic-release](https://semantic-release.gitbook.io/) to decide the next
+version, bumps `package.json`, runs your build, uploads the package to the
+Chrome Web Store (API v2), submits it for review, then commits the new version
+back to the branch, tags it and creates a GitHub release.
 
-[![GitHub Super-Linter](https://github.com/pixpilot/github-action-template/actions/workflows/linter.yml/badge.svg)](https://github.com/super-linter/super-linter)
-![CI](https://github.com/pixpilot/github-action-template/actions/workflows/ci.yml/badge.svg)
+| Commits since the last release                           | Release |
+| -------------------------------------------------------- | ------- |
+| `feat!:`, `fix(scope)!:` or a `BREAKING CHANGE:` footer  | major   |
+| `feat:`                                                  | minor   |
+| `fix:`, `perf:`, `revert:`                               | patch   |
+| anything else (`chore:`, `docs:`, `refactor:`, `test:`…) | none    |
 
-Use this template to bootstrap the creation of a TypeScript action. :rocket:
+In a monorepo, only commits that touched `paths` count, so a `feat(web)!:`
+does not bump the extension.
 
-This template includes compilation support, tests, a validation workflow,
-publishing, and versioning guidance.
+## Use
 
-If you are new, there's also a simpler introduction in the
-[Hello world TypeScript action repository](https://github.com/actions/hello-world-javascript-action).
+```yaml
+on:
+  push:
+    branches: [main]
 
-## 🚀 Getting Started
+concurrency:
+  group: extension-release
+  cancel-in-progress: false
 
-Run setup after cloning:
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    environment: chrome-web-store-production
+    permissions:
+      contents: write # push the release commit and tag
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # semantic-release needs every tag and commit
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@v4
+      - run: pnpm install --frozen-lockfile
+
+      - uses: pixpilot/chrome-extension-semantic-release@v1
+        id: release
+        with:
+          build-command: pnpm run build
+          package: dist
+          extension-id: ${{ vars.CWS_EXTENSION_ID }}
+          publisher-id: ${{ vars.CWS_PUBLISHER_ID }}
+          client-id: ${{ secrets.CWS_CLIENT_ID }}
+          client-secret: ${{ secrets.CWS_CLIENT_SECRET }}
+          refresh-token: ${{ secrets.CWS_REFRESH_TOKEN }}
+
+      - if: ${{ steps.release.outputs.released == 'true' }}
+        run: echo "Released ${{ steps.release.outputs.version }}"
+```
+
+Before the first run, tag the commit that shipped the version currently in the
+store; see [First release](#first-release).
+
+### Monorepo (roleclick)
+
+This replaces `publish-chrome-extension.yml` as the job the release workflow
+calls when `pixpilot/turbo-affected` reports the extension affected. The
+version-bump comparison in `release.yml` is no longer needed: semantic-release
+decides whether there is anything to release.
+
+```yaml
+name: Release Chrome Extension
+
+on:
+  workflow_call:
+
+jobs:
+  release:
+    name: Release Chrome extension
+    runs-on: ubuntu-latest
+    environment: chrome-web-store-production
+    permissions:
+      contents: read
+
+    outputs:
+      released: ${{ steps.release.outputs.released }}
+      version: ${{ steps.release.outputs.version }}
+
+    steps:
+      # main is protected, so the release commit is pushed as the GitHub App.
+      - name: Generate token
+        id: token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ secrets.RELEASER_ID }}
+          private-key: ${{ secrets.RELEASER_PRIVATE_KEY }}
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up project
+        uses: pixpilot/github-actions/setup-pnpm-project@v1
+        with:
+          npm-auth-registry: 'https://npm.pkg.github.com/'
+          npm-auth-token: ${{ secrets.PIXPILOT_PRIVATE_REGISTRY_TOKEN }}
+          npm-auth-scopes: '@pixpilot-private'
+
+      # The extension and every workspace package it ships, so a feat in
+      # packages/ui releases the extension but a feat in apps/web does not.
+      - name: List extension source folders
+        id: paths
+        shell: bash
+        run: |
+          {
+            echo 'paths<<EOF'
+            pnpm --filter-prod 'chrome-extension...' ls --depth -1 --json | jq -r '.[].path'
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Release
+        id: release
+        uses: pixpilot/chrome-extension-semantic-release@v1
+        env:
+          # Browser-safe values the build embeds.
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_PUBLISHABLE_KEY: ${{ vars.SUPABASE_PUBLISHABLE_KEY }}
+        with:
+          working-directory: apps/chrome-extension
+          paths: ${{ steps.paths.outputs.paths }}
+          tag-format: chrome-extension-v${version}
+          build-command: pnpm run zip
+          package: package
+          extension-id: ${{ vars.CWS_EXTENSION_ID }}
+          publisher-id: ${{ vars.CWS_PUBLISHER_ID }}
+          client-id: ${{ secrets.CWS_CLIENT_ID }}
+          client-secret: ${{ secrets.CWS_CLIENT_SECRET }}
+          refresh-token: ${{ secrets.CWS_REFRESH_TOKEN }}
+          github-token: ${{ steps.token.outputs.token }}
+
+      - name: Upload package artifact
+        if: ${{ steps.release.outputs.released == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: chrome-extension
+          path: ${{ steps.release.outputs.package-path }}
+```
+
+## First release
+
+semantic-release finds the last release from Git tags. With no tag matching
+`tag-format` it starts at `1.0.0`, which the store rejects when a higher version
+is live, so the action stops and prints the command to run. Tag the commit that
+shipped the current `package.json` version once:
 
 ```sh
-pnpm run setup
+git tag chrome-extension-v2.0.0 <commit>
+git push origin chrome-extension-v2.0.0
 ```
 
-## Create Your Own Action
-
-To create your own action, you can use this repository as a template! Just
-follow the below instructions:
-
-1. Click the **Use this template** button at the top of the repository
-1. Select **Create a new repository**
-1. Select an owner and name for your new repository
-1. Click **Create repository**
-1. Clone your new repository
-
-> [!IMPORTANT]
->
-> Make sure to remove or update the [`CODEOWNERS`](./CODEOWNERS) file! For
-> details on how to use this file, see
-> [About code owners](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners).
-
-## Initial Setup
-
-After you've cloned the repository to your local machine or codespace, you'll
-need to perform some initial setup steps before you can develop your action.
-
-> [!NOTE]
->
-> You'll need to have a reasonably modern version of
-> [Node.js](https://nodejs.org) handy. If you are using a version manager like
-> [`nodenv`](https://github.com/nodenv/nodenv) or
-> [`nvm`](https://github.com/nvm-sh/nvm), you can run `nodenv install` in the
-> root of your repository to install the version specified in
-> [`package.json`](./package.json). Otherwise, 20.x or later should work!
-
-1. :hammer_and_wrench: Install the dependencies
-
-   ```bash
-   npm install
-   ```
-
-1. :building_construction: Package the TypeScript for distribution
-
-   ```bash
-   npm run bundle
-   ```
-
-1. :white_check_mark: Run the tests
-
-   ```bash
-   $ npm test
-
-   PASS  ./index.test.js
-     ✓ throws invalid number (3ms)
-     ✓ wait 500 ms (504ms)
-     ✓ test runs (95ms)
-
-   ...
-   ```
-
-## Update the Action Metadata
-
-The [`action.yml`](action.yml) file defines metadata about your action, such as
-input(s) and output(s). For details about this file, see
-[Metadata syntax for GitHub Actions](https://docs.github.com/en/actions/creating-actions/metadata-syntax-for-github-actions).
-
-When you copy this repository, update `action.yml` with the name, description,
-inputs, and outputs for your action.
-
-## Update the Action Code
-
-The [`src/`](./src/) directory is the heart of your action! This contains the
-source code that will be run when your action is invoked. You can replace the
-contents of this directory with your own code.
-
-There are a few things to keep in mind when writing your action code:
-
-- Most GitHub Actions toolkit and CI/CD operations are processed asynchronously.
-  In `main.js`, you will see that the action is run in an `async` function.
-
-  ```typescript
-  import * as core from '@actions/core';
-  // ...
-
-  async function run() {
-    try {
-      // ...
-    } catch (error) {
-      core.setFailed((error as Error).message);
-    }
-  }
-  ```
-
-  For more information about the GitHub Actions toolkit, see the
-  [documentation](https://github.com/actions/toolkit/blob/main/README.md).
-
-So, what are you waiting for? Go ahead and start customizing your action!
-
-1. Create a new branch
-
-   ```bash
-   git checkout -b releases/v1
-   ```
-
-1. Replace the contents of `src/` with your action code
-1. Add tests to `__tests__/` for your source code
-1. Format, test, and build the action
-
-   ```bash
-   npm run all
-   ```
-
-   > This step is important! It will run [`ncc`](https://github.com/vercel/ncc)
-   > to build the final TypeScript action code with all dependencies included.
-   > If you do not run this step, your action will not work correctly when it is
-   > used in a workflow. This step also includes the `--license` option for
-   > `ncc`, which will create a license file for all of the production node
-   > modules used in your project.
-
-1. (Optional) Test your action locally
-
-   The [`@github/local-action`](https://github.com/github/local-action) utility
-   can be used to test your action locally. It is a simple command-line tool
-   that "stubs" (or simulates) the GitHub Actions Toolkit. This way, you can run
-   your TypeScript action locally without having to commit and push your changes
-   to a repository.
-
-   The `local-action` utility can be run in the following ways:
-   - Visual Studio Code Debugger
-
-     Make sure to review and, if needed, update
-     [`.vscode/launch.json`](./.vscode/launch.json)
-
-   - Terminal/Command Prompt
-
-     ```bash
-     # npx @github/local action <action-yaml-path> <entrypoint> <dotenv-file>
-     npx @github/local-action . src/main.js .env
-     ```
-
-   You can provide a `.env` file to the `local-action` CLI to set environment
-   variables used by the GitHub Actions Toolkit. For example, setting inputs and
-   event payload data used by your action. For more information, see the example
-   file, [`.env.example`](./.env.example), and the
-   [GitHub Actions Documentation](https://docs.github.com/en/actions/learn-github-actions/variables#default-environment-variables).
-
-1. Commit your changes
-
-   ```bash
-   git add .
-   git commit -m "My first action is ready!"
-   ```
-
-1. Push them to your repository
-
-   ```bash
-   git push -u origin releases/v1
-   ```
-
-1. Create a pull request and get feedback on your action
-1. Merge the pull request into the `main` branch
-
-Your action is now published! :rocket:
-
-For information about versioning your action, see
-[Versioning](https://github.com/actions/toolkit/blob/main/docs/action-versioning.md)
-in the GitHub Actions toolkit.
-
-## Validate the Action
-
-You can now validate the action by referencing it in a workflow file. For
-example, [`ci.yml`](./.github/workflows/ci.yml) demonstrates how to reference an
-action in the same repository.
-
-```yaml
-steps:
-  - name: Checkout
-    id: checkout
-    uses: actions/checkout@v3
-
-  - name: Test Local Action
-    id: test-action
-    uses: ./
-    with:
-      milliseconds: 1000
-
-  - name: Print Output
-    id: output
-    run: echo "${{ steps.test-action.outputs.time }}"
-```
-
-For example workflow runs, check out the
-[Actions tab](https://github.com/pixpilot/github-action-template/actions)!
-:rocket:
-
-## Usage
-
-After testing, you can create version tag(s) that developers can use to
-reference different stable versions of your action. For more information, see
-[Versioning](https://github.com/actions/toolkit/blob/main/docs/action-versioning.md)
-in the GitHub Actions toolkit.
-
-To include the action in a workflow in another repository, you can use the
-`uses` syntax with the `@` symbol to reference a specific branch, tag, or commit
-hash.
-
-```yaml
-steps:
-  - name: Checkout
-    id: checkout
-    uses: actions/checkout@v4
-
-  - name: Run my Action
-    id: run-action
-    uses: pixpilot/github-action-template@v1 # Commit with the `v1` tag
-    with:
-      milliseconds: 1000
-
-  - name: Print Output
-    id: output
-    run: echo "${{ steps.run-action.outputs.time }}"
-```
-
-## Dependency License Management
-
-This template includes a GitHub Actions workflow,
-[`licensed.yml`](./.github/workflows/licensed.yml), that uses
-[Licensed](https://github.com/licensee/licensed) to check for dependencies with
-missing or non-compliant licenses. This workflow is initially disabled. To
-enable the workflow, follow the below steps.
-
-1. Open [`licensed.yml`](./.github/workflows/licensed.yml)
-1. Uncomment the following lines:
-
-   ```yaml
-   # pull_request:
-   #   branches:
-   #     - main
-   # push:
-   #   branches:
-   #     - main
-   ```
-
-1. Save and commit the changes
-
-Once complete, this workflow will run any time a pull request is created or
-changes pushed directly to `main`. If the workflow detects any dependencies with
-missing or non-compliant licenses, it will fail the workflow and provide details
-on the issue(s) found.
-
-### Updating Licenses
-
-Whenever you install or update dependencies, you can use the Licensed CLI to
-update the licenses database. To install Licensed, see the project's
-[Readme](https://github.com/licensee/licensed?tab=readme-ov-file#installation).
-
-To update the cached licenses, run the following command:
-
-```bash
-licensed cache
-```
-
-To check the status of cached licenses, run the following command:
-
-```bash
-licensed status
-```
+The same check stops a release when `package.json` was bumped by hand past the
+last tag.
+
+## Inputs
+
+| Input               | Default                                                   | Description                                                                                     |
+| ------------------- | --------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `working-directory` | `.`                                                       | Folder of the extension's `package.json`.                                                       |
+| `paths`             | `working-directory`                                       | Newline- or comma-separated folders whose commits count.                                        |
+| `branches`          | `main`                                                    | Branches to release from.                                                                       |
+| `tag-format`        | `v${version}`                                             | Tag format. Make it unique per app in a monorepo.                                               |
+| `manifest`          |                                                           | Source `manifest.json` to bump too, when the build does not take the version from package.json. |
+| `build-command`     |                                                           | Shell command run in `working-directory` after the bump.                                        |
+| `package`           |                                                           | A `.zip`, a folder holding one `.zip`, or the unpacked build folder. Required when uploading.   |
+| `upload`            | `true`                                                    | Upload to the Chrome Web Store.                                                                 |
+| `submit`            | `true`                                                    | Submit for review; `false` leaves a draft.                                                      |
+| `extension-id`      |                                                           | Store item ID.                                                                                  |
+| `publisher-id`      |                                                           | Store publisher ID.                                                                             |
+| `client-id`         |                                                           | Google OAuth client ID.                                                                         |
+| `client-secret`     |                                                           | Google OAuth client secret.                                                                     |
+| `refresh-token`     |                                                           | Google OAuth refresh token.                                                                     |
+| `commit`            | `true`                                                    | Commit the bumped files back to the branch.                                                     |
+| `commit-message`    | `chore(release): ${nextRelease.gitTag} [skip ci]` + notes | Release commit message template.                                                                |
+| `changelog-file`    |                                                           | Changelog to update and commit, relative to `working-directory`.                                |
+| `github-release`    | `true`                                                    | Create a GitHub release.                                                                        |
+| `github-token`      | `${{ github.token }}`                                     | Pushes the commit and tag and creates the GitHub release.                                       |
+| `dry-run`           | `false`                                                   | Report the next version without changing anything.                                              |
+
+Paths in `paths` and `working-directory` are relative to the workspace;
+absolute paths inside it also work.
+
+## Outputs
+
+| Output             | Description                                                                 |
+| ------------------ | --------------------------------------------------------------------------- |
+| `released`         | `true` when a version was released; `false` in a dry run.                   |
+| `version`          | The released version, or in a dry run the one that would be. Empty if none. |
+| `previous-version` | The last released version.                                                  |
+| `tag`              | The release tag.                                                            |
+| `release-type`     | `major`, `minor` or `patch`.                                                |
+| `notes`            | The release notes.                                                          |
+| `package-path`     | Repository-relative path of the uploaded package.                           |
+
+## How it works
+
+1. **Verify** – reads `package.json` and, when uploading, fetches an access
+   token and the item status, so bad credentials fail before anything changes.
+2. **Analyze** – lists commits since the last tag, keeps those that touched
+   `paths` and picks the release type with the Conventional Commits preset.
+3. **Guard** – refuses a version lower than the one in `package.json`.
+4. **Prepare** – writes the version to `package.json` (and `manifest`), runs
+   `build-command`, checks an unpacked build's `manifest.json` carries the new
+   version, and uploads the package as a draft. The upload happens before the
+   commit and tag, so a rejected package leaves the branch untouched and the next
+   run retries the same version.
+5. **Commit and tag** – updates `changelog-file`, commits the bumped files with
+   `[skip ci]`, pushes, then tags the release commit.
+6. **Publish** – submits the draft for review and creates the GitHub release.
+
+## Requirements
+
+- Check out with `fetch-depth: 0`.
+- `github-token` must be able to push to the release branch. Use a GitHub App
+  token when the branch is protected; `GITHUB_TOKEN` needs `contents: write`.
+- The build must read the version from `package.json`, or set `manifest`.
+- The Chrome Web Store item must already exist; the API cannot create one.
+- Queue runs with a non-cancelling `concurrency` group. semantic-release skips a
+  run whose checkout is behind the remote branch.
+
+## Gotchas
+
+- `[skip ci]` in the release commit keeps it from triggering the release again.
+  Keep it if you change `commit-message`.
+- With `turbo-affected`, the next push still sees the release commit's
+  `package.json` change and reports the extension affected. The action then
+  finds no releasable commit and exits without a release.
+- Submission failures happen after the tag is pushed, so a re-run will not
+  retry them. The error says so; submit the uploaded draft from the developer
+  dashboard.
+- A semantic-release config file in the repository root is still read, but this
+  action's `branches`, `tag-format`, plugins and preset take precedence.
+- This action does not use `semantic-release-chrome`: its last release (2023)
+  calls the Chrome Web Store API v1.1, which Google shuts down on
+  2026-10-15. Uploads here go through `chrome-webstore-upload` on API v2.

@@ -4,7 +4,7 @@
   "version": "0.0.0",
   "private": true,
   "packageManager": "pnpm@10.34.5",
-  "description": "Chrome Extension Semantic Release",
+  "description": "GitHub Action that versions a Chrome extension with semantic-release and publishes it to the Chrome Web Store",
   "author": "Mo Doaie <m.doaie@hotmail.com>",
   "license": "MIT",
   "homepage": "https://github.com/pixpilot/chrome-extension-semantic-release",
@@ -16,8 +16,10 @@
     "url": "https://github.com/pixpilot/chrome-extension-semantic-release/issues"
   },
   "keywords": [
-    "actions",
-    "typescript"
+    "github-actions",
+    "chrome-extension",
+    "chrome-web-store",
+    "semantic-release"
   ],
   "exports": {
     ".": "./dist/index.js"
@@ -48,7 +50,16 @@
     "prepare": "husky"
   },
   "dependencies": {
-    "@actions/core": "^3.0.1"
+    "@actions/core": "^3.0.1",
+    "@semantic-release/changelog": "^6.0.3",
+    "@semantic-release/commit-analyzer": "^13.0.1",
+    "@semantic-release/git": "^10.0.1",
+    "@semantic-release/github": "^12.0.10",
+    "@semantic-release/release-notes-generator": "^14.1.1",
+    "chrome-webstore-upload": "^6.0.0",
+    "conventional-changelog-conventionalcommits": "^9.3.1",
+    "semantic-release": "^25.0.9",
+    "semver": "^7.8.5"
   },
   "devDependencies": {
     "@commitlint/cli": "^21.2.2",
@@ -56,9 +67,9 @@
     "@github/local-action": "^7.0.1",
     "@pixpilot/dev-config": "^3.22.0",
     "@pixpilot/eslint-config": "^2.18.0",
-    "@semantic-release/changelog": "^6.0.3",
-    "@semantic-release/git": "^10.0.1",
     "@types/node": "^25.9.8",
+    "@types/semver": "^7.8.0",
+    "@types/signale": "^1.4.7",
     "@typescript-eslint/eslint-plugin": "^8.70.0",
     "@typescript-eslint/parser": "^8.70.0",
     "@vitest/coverage-v8": "^4.1.11",
@@ -71,7 +82,6 @@
     "make-coverage-badge": "^1.2.0",
     "prettier": "^3.9.8",
     "prettier-eslint": "^16.4.2",
-    "semantic-release": "^25.0.9",
     "semantic-release-major-tag": "^0.3.2",
     "tsx": "^4.23.13",
     "typescript": "^5.9.3",

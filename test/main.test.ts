@@ -1,106 +1,89 @@
 import * as core from '@actions/core';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
-const waitMock = vi.fn();
+import { readInputs } from '../src/inputs';
+import { run } from '../src/main';
+import { release } from '../src/release';
 
-// Mock @actions/core - vitest will use __mocks__/@actions/core.ts
 vi.mock('@actions/core');
-vi.mock('../src/wait', () => ({ wait: waitMock }));
+vi.mock('../src/inputs', () => ({ readInputs: vi.fn() }));
+vi.mock('../src/release', () => ({ release: vi.fn() }));
 
-const { run } = await import('../src/main');
+const outcome = {
+  released: true,
+  version: '2.1.0',
+  previousVersion: '2.0.0',
+  tag: 'ext-v2.1.0',
+  type: 'minor',
+  notes: '## 2.1.0',
+  packagePath: 'apps/ext/package/ext-2.1.0.zip',
+};
 
-describe('main.ts', () => {
-  beforeEach(() => {
-    vi.mocked(core.getInput).mockImplementation(() => '500');
-    vi.mocked(waitMock).mockResolvedValue('done!');
-  });
-
+describe('run', () => {
   afterEach(() => {
-    vi.resetAllMocks();
+    vi.clearAllMocks();
   });
 
-  describe('__mocks__/core.ts verification', () => {
-    it('should have core functions mocked from __mocks__/core.ts', () => {
-      // Verify that core functions are actually mocked functions
-      expect(vi.isMockFunction(core.debug)).toBe(true);
-      expect(vi.isMockFunction(core.error)).toBe(true);
-      expect(vi.isMockFunction(core.info)).toBe(true);
-      expect(vi.isMockFunction(core.getInput)).toBe(true);
-      expect(vi.isMockFunction(core.setOutput)).toBe(true);
-      expect(vi.isMockFunction(core.setFailed)).toBe(true);
-      expect(vi.isMockFunction(core.warning)).toBe(true);
+  it('sets every output and summarises the release', async () => {
+    vi.mocked(readInputs).mockReturnValue({ dryRun: false } as never);
+    vi.mocked(release).mockResolvedValue(outcome);
+
+    await run();
+
+    expect(vi.mocked(core.setOutput).mock.calls).toEqual([
+      ['released', 'true'],
+      ['version', '2.1.0'],
+      ['previous-version', '2.0.0'],
+      ['tag', 'ext-v2.1.0'],
+      ['release-type', 'minor'],
+      ['notes', '## 2.1.0'],
+      ['package-path', 'apps/ext/package/ext-2.1.0.zip'],
+    ]);
+    expect(core.summary.addHeading).toHaveBeenCalledWith('Released ext-v2.1.0', 3);
+    expect(core.setFailed).not.toHaveBeenCalled();
+  });
+
+  it('summarises a dry run and a run without a release', async () => {
+    vi.mocked(readInputs).mockReturnValue({ dryRun: true } as never);
+    vi.mocked(release).mockResolvedValueOnce({ ...outcome, released: false });
+    await run();
+    expect(core.summary.addHeading).toHaveBeenCalledWith(
+      'Dry run: would release ext-v2.1.0',
+      3,
+    );
+
+    vi.mocked(release).mockResolvedValueOnce({
+      ...outcome,
+      released: false,
+      version: '',
+      tag: '',
+    });
+    await run();
+    expect(core.summary.addHeading).toHaveBeenCalledWith('No extension release', 3);
+  });
+
+  it('fails with the inner messages of a semantic-release AggregateError', async () => {
+    vi.mocked(readInputs).mockReturnValue({ dryRun: false } as never);
+    vi.mocked(release).mockRejectedValue(
+      new AggregateError(
+        [new Error('first problem'), new Error('second problem')],
+        'stack dump',
+      ),
+    );
+
+    await run();
+
+    expect(core.setFailed).toHaveBeenCalledWith('first problem\nsecond problem');
+  });
+
+  it('fails when the inputs are invalid', async () => {
+    vi.mocked(readInputs).mockImplementation(() => {
+      throw new Error('The "package" input is required');
     });
 
-    it('should allow mocking of core functions', () => {
-      // Test that we can mock and call core functions
-      vi.mocked(core.debug).mockImplementation((message: string) => {
-        console.log(`DEBUG: ${message}`);
-      });
-
-      core.debug('test message');
-      expect(vi.mocked(core.debug)).toHaveBeenCalledWith('test message');
-    });
-  });
-
-  it('sets the time output', async () => {
     await run();
 
-    expect(vi.mocked(core.setOutput)).toHaveBeenNthCalledWith(
-      1,
-      'time',
-      // Match HH:MM:SS
-      expect.stringMatching(/^\d{2}:\d{2}:\d{2}/u),
-    );
-  });
-
-  it('calls core.info and core.debug functions during execution', async () => {
-    await run();
-
-    // Verify info calls
-    expect(vi.mocked(core.info)).toHaveBeenCalledWith(
-      'Starting GitHub Action with 500 milliseconds wait time',
-    );
-    expect(vi.mocked(core.info)).toHaveBeenCalledWith(
-      'GitHub Action completed successfully',
-    );
-
-    // Verify debug calls
-    expect(vi.mocked(core.debug)).toHaveBeenCalledWith('Waiting 500 milliseconds ...');
-    // Debug should be called 3 times (waiting message + 2 timestamps)
-    expect(vi.mocked(core.debug)).toHaveBeenCalledTimes(3);
-  });
-
-  it('sets a failed status', async () => {
-    vi.mocked(core.getInput).mockClear().mockReturnValueOnce('this is not a number');
-
-    vi.mocked(waitMock)
-      .mockClear()
-      .mockRejectedValueOnce(new Error('milliseconds is not a number'));
-
-    await run();
-
-    // Verify error logging
-    expect(vi.mocked(core.error)).toHaveBeenCalledWith(
-      'Action failed: milliseconds is not a number',
-    );
-
-    // Verify setFailed is called
-    expect(vi.mocked(core.setFailed)).toHaveBeenNthCalledWith(
-      1,
-      'milliseconds is not a number',
-    );
-  });
-
-  it('logs and handles non-Error failures without setting failed status', async () => {
-    vi.mocked(core.getInput).mockClear().mockReturnValueOnce('500');
-
-    vi.mocked(waitMock).mockClear().mockRejectedValueOnce('unexpected failure');
-
-    await run();
-
-    expect(vi.mocked(core.error)).toHaveBeenCalledWith(
-      'Action failed: unexpected failure',
-    );
-    expect(vi.mocked(core.setFailed)).not.toHaveBeenCalled();
+    expect(core.setFailed).toHaveBeenCalledWith('The "package" input is required');
+    expect(release).not.toHaveBeenCalled();
   });
 });
