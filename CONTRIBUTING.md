@@ -1,4 +1,4 @@
-# Contributing to <projectName>
+# Contributing to Chrome Extension Semantic Release
 
 Thank you for your interest in contributing! 🎉
 

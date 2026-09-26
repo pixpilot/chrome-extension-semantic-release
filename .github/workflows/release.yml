@@ -23,13 +23,20 @@ jobs:
       }}
     runs-on: ubuntu-latest
     steps:
+      - name: Generate token
+        id: generate-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ secrets.RELEASER_ID }}
+          private-key: ${{ secrets.RELEASER_PRIVATE_KEY }}
+
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
           persist-credentials: false
           ref: ${{ github.event.workflow_run.head_sha }}
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ steps.generate-token.outputs.token }}
 
       - name: Setup Project
         uses: pixpilot/github-actions/setup-pnpm-project@v1
@@ -38,42 +45,6 @@ jobs:
         run: npm run bundle
 
       - name: Semantic Release
-        uses: cycjimmy/semantic-release-action@v4.2.2
+        uses: cycjimmy/semantic-release-action@v4
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-# ======================================================================
-# If your branch is protected, remove the steps above and use this one instead.
-# Additional setup:
-# - See the following gist for detailed instructions:
-#   https://gist.github.com/0xernesto/a8065cce55940e6ccc523664a87ee9bc
-# - You must set up a GitHub App and add the following repository secrets:
-#     RELEASER_ID:            The App ID of your GitHub App
-#     RELEASER_PRIVATE_KEY:   The private key for your GitHub App
-# ======================================================================
-# steps:
-#   - name: Generate token
-#     id: generate-token
-#     uses: actions/create-github-app-token@v3
-#     with:
-#       client-id: ${{ secrets.RELEASER_ID }}
-#       private-key: ${{ secrets.RELEASER_PRIVATE_KEY }}
-
-#   - name: Checkout
-#     uses: actions/checkout@v4
-#     with:
-#       fetch-depth: 0
-#       persist-credentials: false
-#       ref: ${{ github.event.workflow_run.head_sha }}
-#       token: ${{ steps.generate-token.outputs.token }}
-
-#   - name: Setup Project
-#     uses: pixpilot/github-actions/setup-pnpm-project@v1
-
-#   - name: Build dist
-#     run: npm run bundle
-
-#   - name: Semantic Release
-#     uses: cycjimmy/semantic-release-action@v4
-#     env:
-#       GITHUB_TOKEN: ${{ steps.generate-token.outputs.token }}
+          GITHUB_TOKEN: ${{ steps.generate-token.outputs.token }}

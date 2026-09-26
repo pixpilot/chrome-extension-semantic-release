@@ -24,11 +24,6 @@ Run setup after cloning:
 pnpm run setup
 ```
 
-This is a one-time step. Until it has run, `pnpm install` prints a reminder and
-`git commit` is blocked. Setup ends by deleting the `setup/` folder, so the gate
-removes itself. It is skipped in CI, in this template repo itself, and with
-`SKIP_SETUP_CHECK=1`.
-
 ## Create Your Own Action
 
 To create your own action, you can use this repository as a template! Just
