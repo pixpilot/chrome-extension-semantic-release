@@ -76,6 +76,19 @@ describe('run', () => {
     expect(core.setFailed).toHaveBeenCalledWith('first problem\nsecond problem');
   });
 
+  it('only warns when the summary cannot be written after a release', async () => {
+    vi.mocked(readInputs).mockReturnValue({ dryRun: false } as never);
+    vi.mocked(release).mockResolvedValue(outcome);
+    vi.mocked(core.summary.write).mockRejectedValueOnce(new Error('no summary file'));
+
+    await run();
+
+    expect(core.warning).toHaveBeenCalledWith(
+      'Could not write the step summary: no summary file',
+    );
+    expect(core.setFailed).not.toHaveBeenCalled();
+  });
+
   it('fails when the inputs are invalid', async () => {
     vi.mocked(readInputs).mockImplementation(() => {
       throw new Error('The "package" input is required');

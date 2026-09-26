@@ -14,8 +14,27 @@ back to the branch, tags it and creates a GitHub release.
 | `fix:`, `perf:`, `revert:`                               | patch   |
 | anything else (`chore:`, `docs:`, `refactor:`, `test:`…) | none    |
 
-In a monorepo, only commits that touched `paths` count, so a `feat(web)!:`
-does not bump the extension.
+In a monorepo, only commits that belong to the extension count, so a
+`feat(web)!:` does not bump it. A commit belongs to the extension when it:
+
+- changes the extension's folder, or the folder of a workspace package it
+  depends on, directly or through other packages. All dependency fields count,
+  because a bundled extension ships whatever it imports, however package.json
+  lists it.
+- changes the locked version of one of those packages' dependencies in
+  `pnpm-lock.yaml`, such as `fix(deps): patch zod` that only touches the
+  lockfile and the pnpm catalog.
+- changes one of the extra `paths`.
+
+Leave out packages that never reach the bundle with
+`ignore-workspace-packages`: shared lint or test config, or a server package
+imported for its types. Anything reachable only through an ignored package is
+left out with it.
+
+Workspaces are read from `pnpm-workspace.yaml` or the `workspaces` field of
+`package.json` (npm, Yarn, Bun), at the nearest folder above the extension that
+declares one. Only pnpm's lockfile is read; with npm, Yarn or Bun, dependency
+updates count once a commit in the extension's folders ships them.
 
 ## Use
 
@@ -108,18 +127,6 @@ jobs:
           npm-auth-token: ${{ secrets.PIXPILOT_PRIVATE_REGISTRY_TOKEN }}
           npm-auth-scopes: '@pixpilot-private'
 
-      # The extension and every workspace package it ships, so a feat in
-      # packages/ui releases the extension but a feat in apps/web does not.
-      - name: List extension source folders
-        id: paths
-        shell: bash
-        run: |
-          {
-            echo 'paths<<EOF'
-            pnpm --filter-prod 'chrome-extension...' ls --depth -1 --json | jq -r '.[].path'
-            echo 'EOF'
-          } >> "$GITHUB_OUTPUT"
-
       - name: Release
         id: release
         uses: pixpilot/chrome-extension-semantic-release@v1
@@ -129,7 +136,13 @@ jobs:
           SUPABASE_PUBLISHABLE_KEY: ${{ vars.SUPABASE_PUBLISHABLE_KEY }}
         with:
           working-directory: apps/chrome-extension
-          paths: ${{ steps.paths.outputs.paths }}
+          # Lint/format/test tooling, and the API server imported for types only.
+          ignore-workspace-packages: |
+            @internal/api
+            @internal/eslint-config
+            @internal/prettier-config
+            @internal/tsdown-config
+            @internal/vitest-config
           tag-format: chrome-extension-v${version}
           build-command: pnpm run zip
           package: package
@@ -165,31 +178,34 @@ last tag.
 
 ## Inputs
 
-| Input               | Default                                                   | Description                                                                                     |
-| ------------------- | --------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| `working-directory` | `.`                                                       | Folder of the extension's `package.json`.                                                       |
-| `paths`             | `working-directory`                                       | Newline- or comma-separated folders whose commits count.                                        |
-| `branches`          | `main`                                                    | Branches to release from.                                                                       |
-| `tag-format`        | `v${version}`                                             | Tag format. Make it unique per app in a monorepo.                                               |
-| `manifest`          |                                                           | Source `manifest.json` to bump too, when the build does not take the version from package.json. |
-| `build-command`     |                                                           | Shell command run in `working-directory` after the bump.                                        |
-| `package`           |                                                           | A `.zip`, a folder holding one `.zip`, or the unpacked build folder. Required when uploading.   |
-| `upload`            | `true`                                                    | Upload to the Chrome Web Store.                                                                 |
-| `submit`            | `true`                                                    | Submit for review; `false` leaves a draft.                                                      |
-| `extension-id`      |                                                           | Store item ID.                                                                                  |
-| `publisher-id`      |                                                           | Store publisher ID.                                                                             |
-| `client-id`         |                                                           | Google OAuth client ID.                                                                         |
-| `client-secret`     |                                                           | Google OAuth client secret.                                                                     |
-| `refresh-token`     |                                                           | Google OAuth refresh token.                                                                     |
-| `commit`            | `true`                                                    | Commit the bumped files back to the branch.                                                     |
-| `commit-message`    | `chore(release): ${nextRelease.gitTag} [skip ci]` + notes | Release commit message template.                                                                |
-| `changelog-file`    |                                                           | Changelog to update and commit, relative to `working-directory`.                                |
-| `github-release`    | `true`                                                    | Create a GitHub release.                                                                        |
-| `github-token`      | `${{ github.token }}`                                     | Pushes the commit and tag and creates the GitHub release.                                       |
-| `dry-run`           | `false`                                                   | Report the next version without changing anything.                                              |
+| Input                       | Default                                                   | Description                                                                                     |
+| --------------------------- | --------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `working-directory`         | `.`                                                       | Folder of the extension's `package.json`.                                                       |
+| `workspace-dependencies`    | `true`                                                    | Count commits to the workspace packages the extension depends on.                               |
+| `ignore-workspace-packages` |                                                           | Workspace package names to leave out, with what only they reach. Unknown names fail the run.    |
+| `dependency-updates`        | `true`                                                    | Count commits that change a locked dependency version of those packages in `pnpm-lock.yaml`.    |
+| `paths`                     |                                                           | Extra folders or files whose commits count.                                                     |
+| `branches`                  | `main`                                                    | Branches to release from.                                                                       |
+| `tag-format`                | `v${version}`                                             | Tag format. Make it unique per app in a monorepo.                                               |
+| `manifest`                  |                                                           | Source `manifest.json` to bump too, when the build does not take the version from package.json. |
+| `build-command`             |                                                           | Shell command run in `working-directory` after the bump.                                        |
+| `package`                   |                                                           | A `.zip`, a folder holding one `.zip`, or the unpacked build folder. Required when uploading.   |
+| `upload`                    | `true`                                                    | Upload to the Chrome Web Store.                                                                 |
+| `submit`                    | `true`                                                    | Submit for review; `false` leaves a draft.                                                      |
+| `extension-id`              |                                                           | Store item ID.                                                                                  |
+| `publisher-id`              |                                                           | Store publisher ID.                                                                             |
+| `client-id`                 |                                                           | Google OAuth client ID.                                                                         |
+| `client-secret`             |                                                           | Google OAuth client secret.                                                                     |
+| `refresh-token`             |                                                           | Google OAuth refresh token.                                                                     |
+| `commit`                    | `true`                                                    | Commit the bumped files back to the branch.                                                     |
+| `commit-message`            | `chore(release): ${nextRelease.gitTag} [skip ci]` + notes | Release commit message template.                                                                |
+| `changelog-file`            |                                                           | Changelog to update and commit, relative to `working-directory`.                                |
+| `github-release`            | `true`                                                    | Create a GitHub release.                                                                        |
+| `github-token`              | `${{ github.token }}`                                     | Pushes the commit and tag and creates the GitHub release.                                       |
+| `dry-run`                   | `false`                                                   | Report the next version without changing anything.                                              |
 
-Paths in `paths` and `working-directory` are relative to the workspace;
-absolute paths inside it also work.
+Paths in `paths` and `working-directory` are relative to the repository checkout
+(`GITHUB_WORKSPACE`); absolute paths inside it also work.
 
 ## Outputs
 
@@ -207,8 +223,9 @@ absolute paths inside it also work.
 
 1. **Verify** – reads `package.json` and, when uploading, fetches an access
    token and the item status, so bad credentials fail before anything changes.
-2. **Analyze** – lists commits since the last tag, keeps those that touched
-   `paths` and picks the release type with the Conventional Commits preset.
+2. **Analyze** – lists commits since the last tag, keeps those that belong to
+   the extension (see above) and picks the release type with the Conventional
+   Commits preset.
 3. **Guard** – refuses a version lower than the one in `package.json`.
 4. **Prepare** – writes the version to `package.json` (and `manifest`), runs
    `build-command`, checks an unpacked build's `manifest.json` carries the new
@@ -239,6 +256,9 @@ absolute paths inside it also work.
 - Submission failures happen after the tag is pushed, so a re-run will not
   retry them. The error says so; submit the uploaded draft from the developer
   dashboard.
+- A workspace package added later counts until it is added to
+  `ignore-workspace-packages`, so new tooling can release the extension. That
+  errs towards releasing rather than missing a change the bundle ships.
 - A semantic-release config file in the repository root is still read, but this
   action's `branches`, `tag-format`, plugins and preset take precedence.
 - This action does not use `semantic-release-chrome`: its last release (2023)

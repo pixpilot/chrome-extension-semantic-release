@@ -10,14 +10,34 @@ branding:
 
 inputs:
   working-directory:
-    description: Folder of the extension's package.json, relative to the workspace.
+    description: Folder of the extension's package.json, relative to the repository checkout.
     required: false
     default: .
+  workspace-dependencies:
+    description: >-
+      Also count commits to the workspace packages the extension depends on,
+      transitively, through dependencies, devDependencies or
+      optionalDependencies. The workspace comes from pnpm-workspace.yaml or the
+      package.json `workspaces` field (npm, Yarn, Bun).
+    required: false
+    default: 'true'
+  ignore-workspace-packages:
+    description: >-
+      Newline- or comma-separated workspace package names to leave out, with
+      anything reachable only through them: shared tooling, or a server package
+      imported for types only. Unknown names fail the run.
+    required: false
+  dependency-updates:
+    description: >-
+      Also count commits that change a locked dependency version of the
+      counted packages in pnpm-lock.yaml. Without a pnpm lockfile only file
+      changes count.
+    required: false
+    default: 'true'
   paths:
     description: >-
-      Newline- or comma-separated paths, relative to the workspace, whose
-      commits count towards the release. Defaults to `working-directory`. Add
-      shared workspace packages the extension is built from.
+      Newline- or comma-separated extra paths, relative to the repository checkout, whose
+      commits also count. The extension's folder always counts.
     required: false
   branches:
     description: Newline- or comma-separated branches to release from.

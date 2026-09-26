@@ -2,6 +2,8 @@
 import type { CommandRunner } from '../src/commands';
 import type { ActionInputs } from '../src/inputs';
 import type { ReleaseDependencies } from '../src/release';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -12,7 +14,10 @@ const root = path.resolve('/workspace');
 
 const inputs: ActionInputs = {
   workingDirectory: 'apps/ext',
-  paths: ['apps/ext', 'packages/ui'],
+  paths: [],
+  workspaceDependencies: true,
+  ignoreWorkspacePackages: [],
+  dependencyUpdates: true,
   branches: ['main'],
   tagFormat: 'ext-v${version}',
   manifest: '',
@@ -55,10 +60,12 @@ const released = {
   },
 };
 
-function createDependencies(result: unknown = released) {
-  const run = vi.fn<CommandRunner>(async (_command, arguments_) =>
-    arguments_[0] === 'remote' ? 'https://github.com/pixpilot/roleclick\n' : `${root}\n`,
-  );
+function createDependencies(result: unknown = released, repositoryRoot = root) {
+  const run = vi.fn<CommandRunner>(async (_command, arguments_) => {
+    if (arguments_[0] === 'remote') return 'https://github.com/pixpilot/roleclick\n';
+    if (arguments_[0] === 'rev-parse') return `${repositoryRoot}\n`;
+    return '';
+  });
   const semanticRelease = vi.fn(async () => result);
   const createStore = vi.fn(() => ({
     itemUrl: '',
@@ -67,7 +74,7 @@ function createDependencies(result: unknown = released) {
     submit: vi.fn(),
   }));
   const dependencies = {
-    cwd: root,
+    cwd: repositoryRoot,
     env: { HOME: '/home/runner' },
     run,
     runShell: vi.fn(),
@@ -75,7 +82,7 @@ function createDependencies(result: unknown = released) {
     semanticRelease,
   } as unknown as ReleaseDependencies;
 
-  return { dependencies, semanticRelease, createStore };
+  return { dependencies, semanticRelease, createStore, run };
 }
 
 function pluginNames(
@@ -183,5 +190,136 @@ describe('release', () => {
       version: '',
       tag: '',
     });
+  });
+});
+
+describe('release in a workspace', () => {
+  interface WorkspaceOptions {
+    readonly lockfile: boolean;
+    /** Folder of the workspace inside the repository; the root by default. */
+    readonly under?: string;
+  }
+
+  // Returns the repository root.
+  async function createWorkspace(options: WorkspaceOptions): Promise<string> {
+    const repository = await mkdtemp(path.join(tmpdir(), 'release-workspace-'));
+    const workspace = path.join(repository, options.under ?? '');
+    const writePackage = async (folder: string, manifest: object) => {
+      await mkdir(path.join(workspace, folder), { recursive: true });
+      await writeFile(
+        path.join(workspace, folder, 'package.json'),
+        JSON.stringify(manifest),
+      );
+    };
+
+    await mkdir(workspace, { recursive: true });
+    await writeFile(
+      path.join(workspace, 'pnpm-workspace.yaml'),
+      'packages: [apps/*, packages/*]',
+    );
+    if (options.lockfile)
+      await writeFile(path.join(workspace, 'pnpm-lock.yaml'), 'importers: {}');
+    await writePackage('apps/ext', {
+      name: 'ext',
+      dependencies: { ui: 'workspace:*' },
+      devDependencies: { api: 'workspace:*' },
+    });
+    await writePackage('packages/ui', { name: 'ui' });
+    await writePackage('packages/api', { name: 'api' });
+    return repository;
+  }
+
+  // Runs the commit filter semantic-release was given and returns the git
+  // commands it issued.
+  async function analyze(
+    workspaceInputs: Partial<ActionInputs>,
+    options: WorkspaceOptions,
+  ): Promise<string[][]> {
+    const workspace = await createWorkspace(options);
+    try {
+      const { dependencies, semanticRelease, run } = createDependencies(
+        released,
+        workspace,
+      );
+      await release({ ...inputs, ...workspaceInputs }, dependencies);
+
+      const [{ plugins }] = semanticRelease.mock.calls[0] as unknown as [
+        {
+          plugins: [
+            Record<string, (config: object, context: object) => unknown>,
+            object,
+          ][];
+        },
+      ];
+      run.mockClear();
+      await plugins[0][0].analyzeCommits(
+        {},
+        {
+          commits: [],
+          lastRelease: { gitHead: 'last' },
+          logger: { log: vi.fn() },
+        },
+      );
+      return run.mock.calls.map(([, arguments_]) => [...arguments_]);
+    } finally {
+      await rm(workspace, { recursive: true, force: true });
+    }
+  }
+
+  it('counts the workspace packages the extension depends on, minus ignored ones', async () => {
+    const calls = await analyze({ ignoreWorkspacePackages: ['api'] }, { lockfile: true });
+
+    const pathLog = calls.find((call) => call.includes('--full-history'))!;
+    expect(pathLog.slice(pathLog.indexOf('--') + 1)).toEqual(['apps/ext', 'packages/ui']);
+    expect(calls.some((call) => call.includes('pnpm-lock.yaml'))).toBe(true);
+  });
+
+  it('finds a workspace and its lockfile below the repository root', async () => {
+    const calls = await analyze(
+      { workingDirectory: 'frontend/apps/ext', ignoreWorkspacePackages: ['api'] },
+      { lockfile: true, under: 'frontend' },
+    );
+
+    const pathLog = calls.find((call) => call.includes('--full-history'))!;
+    expect(pathLog.slice(pathLog.indexOf('--') + 1)).toEqual([
+      'frontend/apps/ext',
+      'frontend/packages/ui',
+    ]);
+    expect(calls.some((call) => call.at(-1) === 'frontend/pnpm-lock.yaml')).toBe(true);
+  });
+
+  it('skips the lockfile scan without pnpm-lock.yaml or when turned off', async () => {
+    for (const [workspaceInputs, options] of [
+      [{}, { lockfile: false }],
+      [{ dependencyUpdates: false }, { lockfile: true }],
+    ] as const) {
+      const calls = await analyze(workspaceInputs, options);
+      expect(calls.some((call) => call.includes('pnpm-lock.yaml'))).toBe(false);
+    }
+  });
+
+  it('counts only the extension folder and extra paths when workspace dependencies are off', async () => {
+    const calls = await analyze(
+      { workspaceDependencies: false, paths: ['shared/assets'] },
+      { lockfile: false },
+    );
+
+    const pathLog = calls.find((call) => call.includes('--full-history'))!;
+    expect(pathLog.slice(pathLog.indexOf('--') + 1)).toEqual([
+      'apps/ext',
+      'shared/assets',
+    ]);
+  });
+
+  it('rejects an ignored package that is not in the workspace', async () => {
+    const workspace = await createWorkspace({ lockfile: false });
+    try {
+      const { dependencies } = createDependencies(released, workspace);
+      await expect(
+        release({ ...inputs, ignoreWorkspacePackages: ['@typo/api'] }, dependencies),
+      ).rejects.toThrow('not in the workspace: @typo/api');
+    } finally {
+      await rm(workspace, { recursive: true, force: true });
+    }
   });
 });

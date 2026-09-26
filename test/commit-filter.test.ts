@@ -32,6 +32,7 @@ describe('createCommitFilterPlugin', () => {
       run,
       repositoryRoot: '/repo',
       paths: ['apps/ext'],
+      lockfile: undefined,
     });
     const context = createContext({
       'feat-web': 'feat(web)!: redesign the dashboard',
@@ -58,6 +59,7 @@ describe('createCommitFilterPlugin', () => {
       run,
       repositoryRoot: '/repo',
       paths: ['.'],
+      lockfile: undefined,
     });
 
     await expect(
@@ -71,6 +73,7 @@ describe('createCommitFilterPlugin', () => {
       run: gitReturning(['feat-ext']),
       repositoryRoot: '/repo',
       paths: ['apps/ext'],
+      lockfile: undefined,
     });
     const context = createContext({
       'feat-ext': 'feat(ext): capture salaries',
@@ -81,5 +84,35 @@ describe('createCommitFilterPlugin', () => {
 
     expect(notes).toContain('capture salaries');
     expect(notes).not.toContain('login redirect');
+  });
+
+  it('also counts commits that changed a locked dependency, scanning once', async () => {
+    const lockfile = (version: string) =>
+      `importers:\n  apps/ext:\n    dependencies:\n      react:\n        version: ${version}\n`;
+    const run = vi.fn<CommandRunner>(async (_command, arguments_) => {
+      if (arguments_.includes('pnpm-lock.yaml')) return 'fix-deps base\n';
+      if (arguments_[0] === 'show') {
+        return lockfile(arguments_[1].startsWith('fix-deps') ? '19.3.0' : '19.2.7');
+      }
+      return '';
+    });
+    const plugin = createCommitFilterPlugin({
+      run,
+      repositoryRoot: '/repo',
+      paths: ['apps/ext'],
+      lockfile: { path: 'pnpm-lock.yaml', importers: ['apps/ext'] },
+    });
+    const context = createContext({
+      'fix-deps': 'fix(deps): patch react',
+      'feat-web': 'feat(web): new page',
+    });
+
+    await expect(plugin.analyzeCommits({}, context as never)).resolves.toBe('patch');
+    await plugin.generateNotes({}, context as never);
+
+    const lockfileScans = run.mock.calls.filter(([, arguments_]) =>
+      arguments_.includes('pnpm-lock.yaml'),
+    );
+    expect(lockfileScans).toHaveLength(1);
   });
 });

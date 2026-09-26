@@ -23,7 +23,11 @@ export async function run(): Promise<void> {
     core.setOutput('notes', outcome.notes);
     core.setOutput('package-path', outcome.packagePath);
 
-    await writeSummary(outcome, inputs.dryRun);
+    // The release has happened by now; a summary that cannot be written must
+    // not report it as failed.
+    await writeSummary(outcome, inputs.dryRun).catch((error: unknown) => {
+      core.warning(`Could not write the step summary: ${describeError(error)}`);
+    });
   } catch (error) {
     core.setFailed(describeError(error));
   }

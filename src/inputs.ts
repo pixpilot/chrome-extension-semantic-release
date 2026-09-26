@@ -10,7 +10,11 @@ export const DEFAULT_COMMIT_MESSAGE =
 /** Validated action inputs. Paths are still as the caller wrote them. */
 export interface ActionInputs {
   readonly workingDirectory: string;
+  /** Extra paths whose commits count, on top of the package and its workspace dependencies. */
   readonly paths: readonly string[];
+  readonly workspaceDependencies: boolean;
+  readonly ignoreWorkspacePackages: readonly string[];
+  readonly dependencyUpdates: boolean;
   readonly branches: readonly string[];
   readonly tagFormat: string;
   readonly manifest: string;
@@ -41,7 +45,6 @@ export function parseList(value: string): string[] {
 
 export function readInputs(): ActionInputs {
   const workingDirectory = core.getInput('working-directory') || '.';
-  const paths = parseList(core.getInput('paths'));
   const branches = parseList(core.getInput('branches'));
   const upload = readBoolean('upload', true);
   const packageInput = core.getInput('package');
@@ -52,7 +55,10 @@ export function readInputs(): ActionInputs {
 
   return {
     workingDirectory,
-    paths: paths.length > 0 ? paths : [workingDirectory],
+    paths: parseList(core.getInput('paths')),
+    workspaceDependencies: readBoolean('workspace-dependencies', true),
+    ignoreWorkspacePackages: parseList(core.getInput('ignore-workspace-packages')),
+    dependencyUpdates: readBoolean('dependency-updates', true),
     branches: branches.length > 0 ? branches : ['main'],
     tagFormat: core.getInput('tag-format') || DEFAULT_TAG_FORMAT,
     manifest: core.getInput('manifest'),

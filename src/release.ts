@@ -2,6 +2,7 @@ import type { LastRelease, Options, Result } from 'semantic-release';
 import type { ChromeWebStore, StoreCredentials } from './chrome-web-store';
 import type { CommandRunner, ShellRunner } from './commands';
 import type { ActionInputs } from './inputs';
+import type { LockfileScope } from './lockfile';
 import type { Plugin } from './plugins/named-plugin';
 import path from 'node:path';
 import process from 'node:process';
@@ -12,10 +13,16 @@ import semanticRelease from 'semantic-release';
 
 import { createChromeWebStore } from './chrome-web-store';
 import { executeCommand, executeShell } from './commands';
+import { hasLockfile, LOCKFILE_NAME } from './lockfile';
 import { createCommitFilterPlugin } from './plugins/commit-filter';
 import { createExtensionPlugin } from './plugins/extension';
 import { namedPlugin } from './plugins/named-plugin';
 import { getOriginUrl, getRepositoryRoot, toRepositoryPath } from './repository';
+import {
+  collectWorkspaceFolders,
+  findWorkspacePackages,
+  findWorkspaceRoot,
+} from './workspace';
 
 /** What happened, in the shape of the action outputs. */
 export interface ReleaseOutcome {
@@ -78,6 +85,17 @@ export async function release(
     tagFormat: inputs.tagFormat,
   });
 
+  const workspace = await resolveWorkspace(inputs, workingDirectory, repositoryRoot);
+  const paths = [
+    ...new Set([
+      ...workspace.folders.map(fromRoot),
+      ...inputs.paths.map((value) => toRepositoryPath(repositoryRoot, cwd, value)),
+    ]),
+  ];
+  const lockfile = inputs.dependencyUpdates
+    ? await findLockfileScope(workspace, repositoryRoot)
+    : undefined;
+
   // Order matters within each step: the package is uploaded before the
   // changelog is written and before anything is committed.
   const plugins: [Plugin, object][] = [
@@ -85,7 +103,8 @@ export async function release(
       createCommitFilterPlugin({
         run,
         repositoryRoot,
-        paths: inputs.paths.map((value) => toRepositoryPath(repositoryRoot, cwd, value)),
+        paths,
+        lockfile,
       }),
       {},
     ],
@@ -149,6 +168,60 @@ export async function release(
     inputs.dryRun,
     packagePath === undefined ? '' : fromRoot(packagePath),
   );
+}
+
+interface Workspace {
+  /** The workspace root, or `undefined` for a package outside any workspace. */
+  readonly root: string | undefined;
+  /**
+   * The extension's folder and, unless turned off, the folders of the workspace
+   * packages it depends on. Absolute.
+   */
+  readonly folders: readonly string[];
+}
+
+async function resolveWorkspace(
+  inputs: ActionInputs,
+  workingDirectory: string,
+  repositoryRoot: string,
+): Promise<Workspace> {
+  const root = await findWorkspaceRoot(workingDirectory, repositoryRoot);
+
+  if (!inputs.workspaceDependencies) return { root, folders: [workingDirectory] };
+
+  const packages =
+    root === undefined ? new Map<string, string>() : await findWorkspacePackages(root);
+  // A typo would silently count the package it meant to leave out.
+  const unknown = inputs.ignoreWorkspacePackages.filter((name) => !packages.has(name));
+
+  if (unknown.length > 0) {
+    throw new Error(
+      `"ignore-workspace-packages" names packages that are not in the workspace: ${unknown.join(', ')}.`,
+    );
+  }
+
+  return {
+    root,
+    folders: await collectWorkspaceFolders(
+      workingDirectory,
+      packages,
+      inputs.ignoreWorkspacePackages,
+    ),
+  };
+}
+
+// The lockfile sits at the workspace root, which need not be the repository
+// root, and keys its importers by folder relative to itself.
+async function findLockfileScope(
+  { root, folders }: Workspace,
+  repositoryRoot: string,
+): Promise<LockfileScope | undefined> {
+  if (root === undefined || !(await hasLockfile(root))) return undefined;
+
+  return {
+    path: toRepositoryPath(repositoryRoot, root, LOCKFILE_NAME),
+    importers: folders.map((folder) => toRepositoryPath(root, root, folder)),
+  };
 }
 
 function toOutcome(result: Result, dryRun: boolean, packagePath: string): ReleaseOutcome {

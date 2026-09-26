@@ -35,16 +35,20 @@ describe('readInputs', () => {
     vi.resetAllMocks();
   });
 
-  it('applies defaults and counts commits under the working directory', () => {
+  it('applies defaults, following workspace dependencies and the lockfile', () => {
     useInputs({
       'working-directory': 'apps/ext',
       upload: 'false',
       'github-token': 'token',
+      'ignore-workspace-packages': '@internal/api\n@internal/eslint-config',
     });
 
     expect(readInputs()).toMatchObject({
       workingDirectory: 'apps/ext',
-      paths: ['apps/ext'],
+      paths: [],
+      workspaceDependencies: true,
+      ignoreWorkspacePackages: ['@internal/api', '@internal/eslint-config'],
+      dependencyUpdates: true,
       branches: ['main'],
       tagFormat: 'v${version}',
       store: undefined,
