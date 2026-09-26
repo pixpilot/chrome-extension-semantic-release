@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "types": ["vitest/globals"],
+    "strict": true,
+    "declaration": true,
+    "outDir": "lib",
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true
+  },
+  "include": ["src/**/*", "test/**/*.ts", "__mocks__/**/*.ts", "eslint.config.mjs"],
+  "exclude": ["node_modules", "dist"],
+  "ts-node": {
+    "experimentalSpecifierResolution": "node"
+  }
+}

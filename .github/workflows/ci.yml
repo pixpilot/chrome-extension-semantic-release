@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test-javascript:
+    name: ci
+    if: >-
+      ${{
+        github.event_name != 'push' ||
+        (
+          !contains(github.event.head_commit.message, '[skip ci]') &&
+          !contains(github.event.head_commit.message, '[ci skip]')
+        )
+      }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        id: checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Project
+        id: setup-project
+        uses: pixpilot/github-actions/setup-pnpm-project@v1
+
+      - name: Build dist
+        id: npm-package
+        run: pnpm run build
+
+      - name: Check Format
+        id: npm-format-check
+        run: pnpm run format
+
+      - name: Lint
+        id: npm-lint
+        run: pnpm run lint
+
+      - name: Test
+        id: npm-ci-test
+        run: pnpm run ci-test
+
+  test-action:
+    name: ci / action
+    if: >-
+      ${{
+        github.event_name != 'push' ||
+        (
+          !contains(github.event.head_commit.message, '[skip ci]') &&
+          !contains(github.event.head_commit.message, '[ci skip]')
+        )
+      }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        id: checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Project
+        id: setup-project
+        uses: pixpilot/github-actions/setup-pnpm-project@v1
+
+      - name: Build dist
+        id: npm-package
+        run: pnpm run build
+
+      - name: Test Local Action
+        id: test-action
+        uses: ./
+        with:
+          milliseconds: 1000

@@ -1,0 +1,82 @@
+{
+  "name": "github-action-template",
+  "type": "module",
+  "version": "0.0.0",
+  "private": true,
+  "packageManager": "pnpm@10.34.5",
+  "description": "GitHub Actions TypeScript Template",
+  "author": "",
+  "license": "MIT",
+  "homepage": "https://github.com/pixpilot/github-action-template#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pixpilot/github-action-template.git"
+  },
+  "bugs": {
+    "url": "https://github.com/pixpilot/github-action-template/issues"
+  },
+  "keywords": [
+    "actions",
+    "typescript"
+  ],
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "engines": {
+    "node": ">=20",
+    "pnpm": ">=9.6.0"
+  },
+  "scripts": {
+    "setup": "npx @pixpilot/scaffoldfy --config ./setup/scaffoldfy.json",
+    "bundle": "pnpm run build",
+    "build": "node esbuild.config.cjs",
+    "ci-test": "cross-env NODE_OPTIONS=--experimental-vm-modules NODE_NO_WARNINGS=1 npx vitest --run",
+    "coverage": "npx make-coverage-badge --output-path ./badges/coverage.svg",
+    "format": "npx prettier --check .",
+    "format:fix": "npx prettier --write .",
+    "lint": "npx eslint .",
+    "lint:fix": "npx eslint . --fix",
+    "test": "vitest --run",
+    "test:watch": "vitest --watch",
+    "test:coverage": "vitest --coverage",
+    "typecheck": "tsc --noEmit",
+    "tsc:watch": "tsc --noEmit --watch",
+    "local-action": "npx @github/local-action . src/index.ts .env",
+    "fix:all": "pnpm format:fix && pnpm lint:fix && pnpm typecheck",
+    "check:all": "npm run format && npm run lint && npm run typecheck && npm run test",
+    "deps:update": "npx taze -r -w && pnpm install",
+    "deps:update:major": "npx taze major -r -w && pnpm install",
+    "prepare": "husky",
+    "postinstall": "node setup/guard.mjs warn"
+  },
+  "dependencies": {
+    "@actions/core": "^3.0.1"
+  },
+  "devDependencies": {
+    "@commitlint/cli": "^21.2.2",
+    "@commitlint/config-conventional": "^21.2.2",
+    "@github/local-action": "^7.0.1",
+    "@pixpilot/dev-config": "^3.22.0",
+    "@pixpilot/eslint-config": "^2.18.0",
+    "@semantic-release/changelog": "^6.0.3",
+    "@semantic-release/git": "^10.0.1",
+    "@types/node": "^25.9.8",
+    "@typescript-eslint/eslint-plugin": "^8.70.0",
+    "@typescript-eslint/parser": "^8.70.0",
+    "@vitest/coverage-v8": "^4.1.11",
+    "@vitest/ui": "^4.1.11",
+    "cross-env": "^10.1.0",
+    "esbuild": "^0.28.2",
+    "eslint": "^9.39.4",
+    "husky": "^9.1.7",
+    "lint-staged": "^17.5.1",
+    "make-coverage-badge": "^1.2.0",
+    "prettier": "^3.9.8",
+    "prettier-eslint": "^16.4.2",
+    "semantic-release": "^25.0.9",
+    "semantic-release-major-tag": "^0.3.2",
+    "tsx": "^4.23.13",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.11"
+  }
+}

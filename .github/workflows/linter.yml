@@ -1,0 +1,59 @@
+# This workflow will lint the entire codebase using the
+# `super-linter/super-linter` action.
+#
+# For more information, see the super-linter repository:
+#     https://github.com/super-linter/super-linter
+name: Lint Codebase
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  packages: read
+  statuses: write
+
+jobs:
+  lint:
+    name: Lint Codebase
+    if: >-
+      ${{
+        github.event_name != 'push' ||
+        (
+          !contains(github.event.head_commit.message, '[skip ci]') &&
+          !contains(github.event.head_commit.message, '[ci skip]')
+        )
+      }}
+    runs-on: ubuntu-latest
+    steps:
+      # Checkout the repository.
+      - name: Checkout
+        id: checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Setup the project with pnpm and install dependencies.
+      - name: Setup Project
+        id: setup-project
+        uses: pixpilot/github-actions/setup-pnpm-project@v1
+
+      # Run project linting (includes TypeScript via ESLint)
+      - name: Lint TypeScript and JavaScript
+        id: lint-ts-js
+        run: pnpm run lint
+
+      # Run TypeScript type checking
+      - name: TypeScript Type Check
+        id: typecheck
+        run: pnpm run typecheck
+
+      # Run Prettier formatting check
+      - name: Check Formatting
+        id: format-check
+        run: pnpm run format
