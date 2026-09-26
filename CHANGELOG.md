@@ -1,3 +1,11 @@
+# [1.1.0](https://github.com/pixpilot/chrome-extension-semantic-release/compare/v1.0.0...v1.1.0) (2026-09-26)
+
+
+### Features
+
+* **release:** enhance release workflow with notification and output handling ([20d3585](https://github.com/pixpilot/chrome-extension-semantic-release/commit/20d3585ccde7e1edbdc261c54a7b5a68630b46cd))
+* **workspace:** enhance workspace dependency handling and lockfile integration ([fd794dc](https://github.com/pixpilot/chrome-extension-semantic-release/commit/fd794dca5c91c2cd421403089f0c961cea97ea55))
+
 # 1.0.0 (2026-09-26)
 
 
