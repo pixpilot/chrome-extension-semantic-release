@@ -1,106 +1,182 @@
 import * as core from '@actions/core';
+import { execFile } from 'node:child_process';
+import * as fs from 'node:fs/promises';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const waitMock = vi.fn();
+const semanticReleaseMock = vi.fn();
 
-// Mock @actions/core - vitest will use __mocks__/@actions/core.ts
 vi.mock('@actions/core');
-vi.mock('../src/wait', () => ({ wait: waitMock }));
+vi.mock('semantic-release', () => ({ default: semanticReleaseMock }));
+vi.mock('node:child_process', () => ({ execFile: vi.fn() }));
+vi.mock('node:fs/promises', () => ({
+  mkdir: vi.fn(),
+  readFile: vi.fn(),
+  writeFile: vi.fn(),
+}));
 
 const { run } = await import('../src/main');
 
 describe('main.ts', () => {
   beforeEach(() => {
-    vi.mocked(core.getInput).mockImplementation(() => '500');
-    vi.mocked(waitMock).mockResolvedValue('done!');
+    vi.mocked(core.getInput).mockImplementation((name: string) => {
+      const defaults: Record<string, string> = {
+        'extension-directory': '.',
+        'manifest-path': 'manifest.json',
+        'package-path': 'release/chrome-extension.zip',
+        'release-version': '',
+        'release-notes': '',
+        'chrome-extension-id': '',
+        'chrome-client-id': '',
+        'chrome-client-secret': '',
+        'chrome-refresh-token': '',
+        'chrome-publish-target': 'default',
+      };
+
+      return defaults[name] ?? '';
+    });
+
+    vi.mocked(core.getBooleanInput).mockImplementation((name: string) => {
+      const defaults: Record<string, boolean> = {
+        'run-semantic-release': true,
+        publish: false,
+      };
+
+      return defaults[name] ?? false;
+    });
+
+    vi.mocked(execFile).mockImplementation(
+      (_command, _args, _options, callback: (error: Error | null) => void) => {
+        callback(null);
+        return {} as ReturnType<typeof execFile>;
+      },
+    );
+
+    vi.mocked(fs.readFile).mockImplementation(async (path: fs.PathLike) => {
+      if (String(path).endsWith('.zip')) {
+        return Buffer.from('zip-content');
+      }
+
+      return '{"name":"extension","version":"0.0.0"}';
+    });
+    vi.mocked(fs.mkdir).mockResolvedValue(undefined);
+    vi.mocked(fs.writeFile).mockResolvedValue(undefined);
+
+    semanticReleaseMock.mockResolvedValue(false);
+
+    global.fetch = vi.fn();
   });
 
   afterEach(() => {
     vi.resetAllMocks();
   });
 
-  describe('__mocks__/core.ts verification', () => {
-    it('should have core functions mocked from __mocks__/core.ts', () => {
-      // Verify that core functions are actually mocked functions
-      expect(vi.isMockFunction(core.debug)).toBe(true);
-      expect(vi.isMockFunction(core.error)).toBe(true);
-      expect(vi.isMockFunction(core.info)).toBe(true);
-      expect(vi.isMockFunction(core.getInput)).toBe(true);
-      expect(vi.isMockFunction(core.setOutput)).toBe(true);
-      expect(vi.isMockFunction(core.setFailed)).toBe(true);
-      expect(vi.isMockFunction(core.warning)).toBe(true);
+  it('skips packaging and publishing when there is no release version', async () => {
+    await run();
+
+    expect(vi.mocked(core.info)).toHaveBeenCalledWith(
+      'No release version available. Skipping packaging and publishing.',
+    );
+    expect(vi.mocked(fs.writeFile)).not.toHaveBeenCalled();
+    expect(vi.mocked(execFile)).not.toHaveBeenCalled();
+    expect(vi.mocked(core.setOutput)).toHaveBeenCalledWith('released', 'false');
+    expect(vi.mocked(core.setOutput)).toHaveBeenCalledWith('published', 'false');
+  });
+
+  it('updates manifest and packages extension when semantic-release returns a new release', async () => {
+    semanticReleaseMock.mockResolvedValue({
+      nextRelease: {
+        version: '1.2.3',
+        notes: 'release notes',
+      },
     });
 
-    it('should allow mocking of core functions', () => {
-      // Test that we can mock and call core functions
-      vi.mocked(core.debug).mockImplementation((message: string) => {
-        console.log(`DEBUG: ${message}`);
-      });
+    await run();
 
-      core.debug('test message');
-      expect(vi.mocked(core.debug)).toHaveBeenCalledWith('test message');
+    expect(vi.mocked(fs.writeFile)).toHaveBeenCalledWith(
+      expect.stringContaining('manifest.json'),
+      expect.stringContaining('"version": "1.2.3"'),
+      'utf8',
+    );
+    expect(vi.mocked(execFile)).toHaveBeenCalledWith(
+      'zip',
+      expect.arrayContaining(['-r']),
+      expect.objectContaining({ cwd: expect.any(String) }),
+      expect.any(Function),
+    );
+    expect(vi.mocked(core.setOutput)).toHaveBeenCalledWith('released', 'true');
+    expect(vi.mocked(core.setOutput)).toHaveBeenCalledWith('version', '1.2.3');
+    expect(vi.mocked(core.setOutput)).toHaveBeenCalledWith('release-notes', 'release notes');
+    expect(vi.mocked(core.setOutput)).toHaveBeenCalledWith('published', 'false');
+  });
+
+  it('fails when publish is enabled without credentials', async () => {
+    semanticReleaseMock.mockResolvedValue({
+      nextRelease: {
+        version: '1.2.3',
+        notes: 'release notes',
+      },
     });
-  });
 
-  it('sets the time output', async () => {
-    await run();
-
-    expect(vi.mocked(core.setOutput)).toHaveBeenNthCalledWith(
-      1,
-      'time',
-      // Match HH:MM:SS
-      expect.stringMatching(/^\d{2}:\d{2}:\d{2}/u),
-    );
-  });
-
-  it('calls core.info and core.debug functions during execution', async () => {
-    await run();
-
-    // Verify info calls
-    expect(vi.mocked(core.info)).toHaveBeenCalledWith(
-      'Starting GitHub Action with 500 milliseconds wait time',
-    );
-    expect(vi.mocked(core.info)).toHaveBeenCalledWith(
-      'GitHub Action completed successfully',
-    );
-
-    // Verify debug calls
-    expect(vi.mocked(core.debug)).toHaveBeenCalledWith('Waiting 500 milliseconds ...');
-    // Debug should be called 3 times (waiting message + 2 timestamps)
-    expect(vi.mocked(core.debug)).toHaveBeenCalledTimes(3);
-  });
-
-  it('sets a failed status', async () => {
-    vi.mocked(core.getInput).mockClear().mockReturnValueOnce('this is not a number');
-
-    vi.mocked(waitMock)
-      .mockClear()
-      .mockRejectedValueOnce(new Error('milliseconds is not a number'));
+    vi.mocked(core.getBooleanInput).mockImplementation((name: string) => {
+      const defaults: Record<string, boolean> = {
+        'run-semantic-release': true,
+        publish: true,
+      };
+      return defaults[name] ?? false;
+    });
 
     await run();
 
-    // Verify error logging
-    expect(vi.mocked(core.error)).toHaveBeenCalledWith(
-      'Action failed: milliseconds is not a number',
-    );
-
-    // Verify setFailed is called
-    expect(vi.mocked(core.setFailed)).toHaveBeenNthCalledWith(
-      1,
-      'milliseconds is not a number',
+    expect(vi.mocked(core.setFailed)).toHaveBeenCalledWith(
+      'chrome-extension-id, chrome-client-id, chrome-client-secret and chrome-refresh-token are required when publish is true.',
     );
   });
 
-  it('logs and handles non-Error failures without setting failed status', async () => {
-    vi.mocked(core.getInput).mockClear().mockReturnValueOnce('500');
+  it('publishes extension when publish is enabled with credentials', async () => {
+    semanticReleaseMock.mockResolvedValue({
+      nextRelease: {
+        version: '1.2.3',
+        notes: 'release notes',
+      },
+    });
 
-    vi.mocked(waitMock).mockClear().mockRejectedValueOnce('unexpected failure');
+    vi.mocked(core.getBooleanInput).mockImplementation((name: string) => {
+      const defaults: Record<string, boolean> = {
+        'run-semantic-release': true,
+        publish: true,
+      };
+      return defaults[name] ?? false;
+    });
+
+    vi.mocked(core.getInput).mockImplementation((name: string) => {
+      const defaults: Record<string, string> = {
+        'extension-directory': '.',
+        'manifest-path': 'manifest.json',
+        'package-path': 'release/chrome-extension.zip',
+        'release-version': '',
+        'release-notes': '',
+        'chrome-extension-id': 'abc123',
+        'chrome-client-id': 'client-id',
+        'chrome-client-secret': 'client-secret',
+        'chrome-refresh-token': 'refresh-token',
+        'chrome-publish-target': 'default',
+      };
+
+      return defaults[name] ?? '';
+    });
+
+    vi.mocked(global.fetch)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ access_token: 'token' }),
+        text: async () => '',
+      } as Response)
+      .mockResolvedValueOnce({ ok: true, text: async () => '' } as Response)
+      .mockResolvedValueOnce({ ok: true, text: async () => '' } as Response);
 
     await run();
 
-    expect(vi.mocked(core.error)).toHaveBeenCalledWith(
-      'Action failed: unexpected failure',
-    );
-    expect(vi.mocked(core.setFailed)).not.toHaveBeenCalled();
+    expect(vi.mocked(global.fetch)).toHaveBeenCalledTimes(3);
+    expect(vi.mocked(core.setOutput)).toHaveBeenCalledWith('published', 'true');
   });
 });

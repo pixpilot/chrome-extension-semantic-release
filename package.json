@@ -1,23 +1,24 @@
 {
-  "name": "github-action-template",
+  "name": "chrome-extension-semantic-release",
   "type": "module",
   "version": "0.0.0",
   "private": true,
   "packageManager": "pnpm@10.34.5",
-  "description": "GitHub Actions TypeScript Template",
+  "description": "Automate semantic versioning and publishing for Chrome extensions",
   "author": "",
   "license": "MIT",
-  "homepage": "https://github.com/pixpilot/github-action-template#readme",
+  "homepage": "https://github.com/pixpilot/chrome-extension-semantic-release#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/pixpilot/github-action-template.git"
+    "url": "git+https://github.com/pixpilot/chrome-extension-semantic-release.git"
   },
   "bugs": {
-    "url": "https://github.com/pixpilot/github-action-template/issues"
+    "url": "https://github.com/pixpilot/chrome-extension-semantic-release/issues"
   },
   "keywords": [
     "actions",
-    "typescript"
+    "chrome-extension",
+    "semantic-release"
   ],
   "exports": {
     ".": "./dist/index.js"

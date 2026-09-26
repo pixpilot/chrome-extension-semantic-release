@@ -1,23 +1,72 @@
-name: The name of your action here
-description: Provide a description here
-author: Your name or organization here
+name: Chrome Extension Semantic Release
+description: Automate semantic versioning, release notes, packaging, and publishing for Chrome extensions.
+author: pixpilot
 
-# Add your action's branding here. This will appear on the GitHub Marketplace.
 branding:
-  icon: heart
-  color: red
+  icon: package
+  color: blue
 
-# Define your inputs here.
 inputs:
-  milliseconds:
-    description: Your input description here
-    required: true
-    default: '1000'
+  extension-directory:
+    description: Directory containing the extension files to package.
+    required: false
+    default: .
+  manifest-path:
+    description: Path to the manifest.json file relative to extension-directory.
+    required: false
+    default: manifest.json
+  package-path:
+    description: Output ZIP path for the packaged extension.
+    required: false
+    default: release/chrome-extension.zip
+  run-semantic-release:
+    description: Run semantic-release to compute next version and release notes.
+    required: false
+    default: 'true'
+  release-version:
+    description: Explicit release version override. Used when semantic-release is disabled.
+    required: false
+    default: ''
+  release-notes:
+    description: Explicit release notes override. Used when semantic-release is disabled.
+    required: false
+    default: ''
+  publish:
+    description: Publish the packaged extension to Chrome Web Store.
+    required: false
+    default: 'true'
+  chrome-extension-id:
+    description: Chrome Web Store extension ID.
+    required: false
+    default: ''
+  chrome-client-id:
+    description: OAuth client ID for Chrome Web Store API.
+    required: false
+    default: ''
+  chrome-client-secret:
+    description: OAuth client secret for Chrome Web Store API.
+    required: false
+    default: ''
+  chrome-refresh-token:
+    description: OAuth refresh token for Chrome Web Store API.
+    required: false
+    default: ''
+  chrome-publish-target:
+    description: Chrome Web Store publish target (default or trustedTesters).
+    required: false
+    default: default
 
-# Define your outputs here.
 outputs:
-  time:
-    description: Your output description here
+  released:
+    description: Whether semantic-release published a release in this run.
+  version:
+    description: Released semantic version used for manifest.json.
+  release-notes:
+    description: Release notes generated or provided for the release.
+  package-path:
+    description: Absolute path to the packaged extension ZIP.
+  published:
+    description: Whether the extension was published to Chrome Web Store.
 
 runs:
   using: node24
