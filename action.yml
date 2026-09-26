@@ -1,7 +1,7 @@
 name: Chrome extension semantic release
 description: >-
-  Version a Chrome extension from Conventional Commits with semantic-release,
-  build it, upload it to the Chrome Web Store and commit the new version.
+  Version, build and submit a Chrome extension to the Chrome Web Store with
+  semantic-release, then commit the version.
 author: Pixpilot
 
 branding:
