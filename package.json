@@ -59,7 +59,7 @@
     "@pixpilot/dev-config": "^3.22.0",
     "@pixpilot/eslint-config": "^2.18.0",
     "@semantic-release/changelog": "^6.0.3",
-    "@semantic-release/git": "^10.0.1",
+    "@semantic-release/git": "^11.0.1",
     "@types/node": "^25.9.8",
     "@typescript-eslint/eslint-plugin": "^8.70.0",
     "@typescript-eslint/parser": "^8.70.0",
