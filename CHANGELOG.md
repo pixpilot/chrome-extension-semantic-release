@@ -1,3 +1,10 @@
+# [1.2.0](https://github.com/pixpilot/chrome-extension-semantic-release/compare/v1.1.2...v1.2.0) (2026-09-27)
+
+
+### Features
+
+* **chrome-web-store:** add pending review cancellation and status checks ([5bc6280](https://github.com/pixpilot/chrome-extension-semantic-release/commit/5bc62800784dbf3dbd0071d733203b8d7faab225))
+
 ## [1.1.2](https://github.com/pixpilot/chrome-extension-semantic-release/compare/v1.1.1...v1.1.2) (2026-09-27)
 
 
