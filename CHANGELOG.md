@@ -1,3 +1,10 @@
+## [1.1.1](https://github.com/pixpilot/chrome-extension-semantic-release/compare/v1.1.0...v1.1.1) (2026-09-26)
+
+
+### Bug Fixes
+
+* **action:** update description for clarity ([046f5c9](https://github.com/pixpilot/chrome-extension-semantic-release/commit/046f5c98c0c9fa3dd957a795f5b79c74dbc9939e))
+
 # [1.1.0](https://github.com/pixpilot/chrome-extension-semantic-release/compare/v1.0.0...v1.1.0) (2026-09-26)
 
 
