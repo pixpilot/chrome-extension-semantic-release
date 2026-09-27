@@ -1,3 +1,10 @@
+## [1.1.2](https://github.com/pixpilot/chrome-extension-semantic-release/compare/v1.1.1...v1.1.2) (2026-09-27)
+
+
+### Bug Fixes
+
+* **release:** update failComment to failCommentCondition in plugin options ([c1d8390](https://github.com/pixpilot/chrome-extension-semantic-release/commit/c1d83900669402997fe9803922320cfe0693053d))
+
 ## [1.1.1](https://github.com/pixpilot/chrome-extension-semantic-release/compare/v1.1.0...v1.1.1) (2026-09-26)
 
 
