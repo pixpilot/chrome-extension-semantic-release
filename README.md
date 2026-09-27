@@ -256,6 +256,10 @@ Paths in `paths` and `working-directory` are relative to the repository checkout
 - Submission failures happen after the tag is pushed, so a re-run will not
   retry them. The error says so; submit the uploaded draft from the developer
   dashboard.
+- When a new release finds an item pending review, the action cancels that
+  submission once before uploading the new package. Chrome Web Store limits
+  each publisher to six review cancellations per day. The workflow summary
+  records the store result and whether a previous review was cancelled.
 - A workspace package added later counts until it is added to
   `ignore-workspace-packages`, so new tooling can release the extension. That
   errs towards releasing rather than missing a change the bundle ships.

@@ -171675,6 +171675,15 @@ function chromeWebstoreUpload(options2) {
 
 // src/chrome-web-store.ts
 var UPLOAD_WAIT_SECONDS = 120;
+var API_ROOT = "https://chromewebstore.googleapis.com";
+var NO_SUBMISSION_STATUSES = /* @__PURE__ */ new Set([400, 404, 409, 412]);
+var CancellationError = class extends Error {
+  constructor(message, status) {
+    super(message);
+    this.status = status;
+  }
+  status;
+};
 function createChromeWebStore(credentials, createClient = chromeWebstoreUpload) {
   const client = createClient(credentials);
   let token;
@@ -171690,6 +171699,41 @@ function createChromeWebStore(credentials, createClient = chromeWebstoreUpload) 
       } catch (error2) {
         throw new Error(
           `Chrome Web Store rejected the credentials or item: ${describe(error2)}. Check client-id, client-secret, refresh-token, publisher-id and extension-id.`
+        );
+      }
+    },
+    async hasPendingReview() {
+      const status = await client.get(await getToken());
+      return status.submittedItemRevisionStatus?.state === "PENDING_REVIEW";
+    },
+    async cancelPendingSubmission() {
+      try {
+        const url = `${API_ROOT}/v2/publishers/${encodeURIComponent(credentials.publisherId)}/items/${encodeURIComponent(credentials.extensionId)}:cancelSubmission`;
+        const response2 = await fetch(url, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${await getToken()}` }
+        });
+        if (!response2.ok) {
+          throw new CancellationError(await responseError(response2), response2.status);
+        }
+        return true;
+      } catch (error2) {
+        if (error2 instanceof CancellationError && NO_SUBMISSION_STATUSES.has(error2.status) && /no (?:active |pending )?(?:submission|review)|submission.*(?:not active|not found|does not exist)|not pending review|nothing to cancel/iu.test(
+          error2.message
+        )) {
+          try {
+            if (!await this.hasPendingReview()) return false;
+          } catch (statusError) {
+            throw new Error(
+              `Chrome Web Store cancellation reported no active submission, but status could not be rechecked: ${describe(statusError)}`
+            );
+          }
+          throw new Error(
+            "Chrome Web Store cancellation reported no active submission, but the item is still pending review. Check the developer dashboard before retrying."
+          );
+        }
+        throw new Error(
+          `Could not cancel the pending Chrome Web Store submission: ${describe(error2)}`
         );
       }
     },
@@ -171710,6 +171754,21 @@ function createChromeWebStore(credentials, createClient = chromeWebstoreUpload) 
       return result.state;
     }
   };
+}
+async function responseError(response2) {
+  const body = await response2.text();
+  try {
+    const parsed = JSON.parse(body);
+    if (typeof parsed === "object" && parsed !== null && "error" in parsed) {
+      const { error: error2 } = parsed;
+      if (typeof error2 === "object" && error2 !== null && "message" in error2) {
+        return String(error2.message);
+      }
+      if (typeof error2 === "string") return error2;
+    }
+  } catch {
+  }
+  return body || `HTTP ${response2.status}`;
 }
 function describe(error2) {
   return (error2 instanceof Error ? error2.message : String(error2)).replace(/\.$/u, "");
@@ -176419,6 +176478,8 @@ function createExtensionPlugin(options2) {
   const versionFiles = options2.manifest === void 0 ? [packageJson] : [packageJson, options2.manifest];
   const display = (file) => toRepositoryPath(repositoryRoot, repositoryRoot, file);
   let packagePath;
+  let reviewCancelled = false;
+  let storeResult;
   const plugin = namedPlugin("chrome extension", {
     async verifyConditions(_pluginConfig, { logger }) {
       await Promise.all(versionFiles.map(readVersion));
@@ -176458,9 +176519,21 @@ function createExtensionPlugin(options2) {
         display
       );
       if (store) {
+        if (await store.hasPendingReview()) {
+          logger.log("Existing Chrome Web Store submission is pending review");
+          logger.log("Cancelling previous submission");
+          reviewCancelled = await store.cancelPendingSubmission();
+          if (reviewCancelled) {
+            logger.success("Previous submission cancelled");
+          } else {
+            logger.log("Previous review completed before cancellation");
+          }
+          logger.log("Continuing with new release");
+        }
         logger.log("Uploading %s to the Chrome Web Store", display(packagePath));
         await store.upload(packagePath);
         logger.success("Uploaded version %s as a draft", nextRelease.version);
+        storeResult = "draft";
       }
     },
     async publish(_pluginConfig, { logger, nextRelease }) {
@@ -176470,6 +176543,7 @@ function createExtensionPlugin(options2) {
           "Left version %s as a draft; submit it from the developer dashboard",
           nextRelease.version
         );
+        storeResult = "draft";
         return { name: "Chrome Web Store draft", url: store.itemUrl };
       }
       try {
@@ -176479,6 +176553,7 @@ function createExtensionPlugin(options2) {
           nextRelease.version,
           state
         );
+        storeResult = "submitted";
       } catch (error2) {
         const reason = error2 instanceof Error ? error2.message : String(error2);
         throw new Error(
@@ -176488,7 +176563,12 @@ function createExtensionPlugin(options2) {
       return { name: "Chrome Web Store", url: store.itemUrl };
     }
   });
-  return { plugin, getPackagePath: () => packagePath };
+  return {
+    plugin,
+    getPackagePath: () => packagePath,
+    wasReviewCancelled: () => reviewCancelled,
+    getStoreResult: () => storeResult
+  };
 }
 async function resolvePackage(target, version, display) {
   const stats = await stat4(target).catch(() => void 0);
@@ -176626,7 +176706,9 @@ async function release3(inputs, dependencies = defaultDependencies) {
   return toOutcome(
     result,
     inputs.dryRun,
-    packagePath === void 0 ? "" : fromRoot(packagePath)
+    packagePath === void 0 ? "" : fromRoot(packagePath),
+    extension.wasReviewCancelled(),
+    extension.getStoreResult()
   );
 }
 async function resolveWorkspace(inputs, workingDirectory, repositoryRoot) {
@@ -176655,7 +176737,7 @@ async function findLockfileScope({ root: root2, folders }, repositoryRoot) {
     importers: folders.map((folder) => toRepositoryPath(root2, root2, folder))
   };
 }
-function toOutcome(result, dryRun, packagePath) {
+function toOutcome(result, dryRun, packagePath, reviewCancelled, storeResult) {
   if (result === false || !("nextRelease" in result)) {
     return {
       released: false,
@@ -176664,7 +176746,9 @@ function toOutcome(result, dryRun, packagePath) {
       tag: "",
       type: "",
       notes: "",
-      packagePath
+      packagePath,
+      reviewCancelled,
+      storeResult
     };
   }
   const { lastRelease, nextRelease } = result;
@@ -176676,7 +176760,9 @@ function toOutcome(result, dryRun, packagePath) {
     tag: nextRelease.gitTag,
     type: nextRelease.type,
     notes: nextRelease.notes ?? "",
-    packagePath
+    packagePath,
+    reviewCancelled,
+    storeResult
   };
 }
 
@@ -176697,7 +176783,15 @@ async function run2() {
       warning(`Could not write the step summary: ${describeError(error2)}`);
     });
   } catch (error2) {
-    setFailed(describeError(error2));
+    const message = describeError(error2);
+    await summary.addHeading("Extension release failed", SUMMARY_HEADING_LEVEL).addRaw(
+      `
+
+${message.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;")}`
+    ).write().catch((summaryError) => {
+      warning(`Could not write the step summary: ${describeError(summaryError)}`);
+    });
+    setFailed(message);
   }
 }
 function describeError(error2) {
@@ -176716,7 +176810,15 @@ async function writeSummary(outcome, dryRun) {
   info(
     `${heading2} (${outcome.type}, previous ${outcome.previousVersion || "none"})`
   );
-  await summary.addHeading(heading2, SUMMARY_HEADING_LEVEL).addRaw(outcome.notes).write();
+  let storeSummary = "not used";
+  if (outcome.storeResult === "submitted") storeSummary = "submitted for review";
+  if (outcome.storeResult === "draft") storeSummary = "uploaded as draft";
+  const reviewSummary = outcome.reviewCancelled ? "\n\nPrevious pending review: cancelled." : "";
+  await summary.addHeading(heading2, SUMMARY_HEADING_LEVEL).addRaw(`
+
+Chrome Web Store: ${storeSummary}.${reviewSummary}`).addRaw(`
+
+${outcome.notes}`).write();
 }
 
 // src/index.ts

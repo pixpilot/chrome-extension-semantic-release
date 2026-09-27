@@ -36,6 +36,8 @@ export interface ExtensionPlugin {
   readonly plugin: ReturnType<typeof namedPlugin>;
   /** The package prepared for this release, once `prepare` has run. */
   readonly getPackagePath: () => string | undefined;
+  readonly wasReviewCancelled: () => boolean;
+  readonly getStoreResult: () => 'submitted' | 'draft' | undefined;
 }
 
 /**
@@ -51,6 +53,8 @@ export function createExtensionPlugin(options: ExtensionPluginOptions): Extensio
   const display = (file: string): string =>
     toRepositoryPath(repositoryRoot, repositoryRoot, file);
   let packagePath: string | undefined;
+  let reviewCancelled = false;
+  let storeResult: 'submitted' | 'draft' | undefined;
 
   const plugin = namedPlugin('chrome extension', {
     async verifyConditions(_pluginConfig: object, { logger }: VerifyConditionsContext) {
@@ -102,9 +106,21 @@ export function createExtensionPlugin(options: ExtensionPluginOptions): Extensio
       );
 
       if (store) {
+        if (await store.hasPendingReview()) {
+          logger.log('Existing Chrome Web Store submission is pending review');
+          logger.log('Cancelling previous submission');
+          reviewCancelled = await store.cancelPendingSubmission();
+          if (reviewCancelled) {
+            logger.success('Previous submission cancelled');
+          } else {
+            logger.log('Previous review completed before cancellation');
+          }
+          logger.log('Continuing with new release');
+        }
         logger.log('Uploading %s to the Chrome Web Store', display(packagePath));
         await store.upload(packagePath);
         logger.success('Uploaded version %s as a draft', nextRelease.version);
+        storeResult = 'draft';
       }
     },
 
@@ -116,6 +132,7 @@ export function createExtensionPlugin(options: ExtensionPluginOptions): Extensio
           'Left version %s as a draft; submit it from the developer dashboard',
           nextRelease.version,
         );
+        storeResult = 'draft';
         return { name: 'Chrome Web Store draft', url: store.itemUrl };
       }
 
@@ -126,6 +143,7 @@ export function createExtensionPlugin(options: ExtensionPluginOptions): Extensio
           nextRelease.version,
           state,
         );
+        storeResult = 'submitted';
       } catch (error) {
         const reason = error instanceof Error ? error.message : String(error);
         throw new Error(
@@ -137,7 +155,12 @@ export function createExtensionPlugin(options: ExtensionPluginOptions): Extensio
     },
   });
 
-  return { plugin, getPackagePath: () => packagePath };
+  return {
+    plugin,
+    getPackagePath: () => packagePath,
+    wasReviewCancelled: () => reviewCancelled,
+    getStoreResult: () => storeResult,
+  };
 }
 
 async function resolvePackage(

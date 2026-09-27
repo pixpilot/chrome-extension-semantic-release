@@ -29,7 +29,17 @@ export async function run(): Promise<void> {
       core.warning(`Could not write the step summary: ${describeError(error)}`);
     });
   } catch (error) {
-    core.setFailed(describeError(error));
+    const message = describeError(error);
+    await core.summary
+      .addHeading('Extension release failed', SUMMARY_HEADING_LEVEL)
+      .addRaw(
+        `\n\n${message.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')}`,
+      )
+      .write()
+      .catch((summaryError: unknown) => {
+        core.warning(`Could not write the step summary: ${describeError(summaryError)}`);
+      });
+    core.setFailed(message);
   }
 }
 
@@ -60,8 +70,15 @@ async function writeSummary(outcome: ReleaseOutcome, dryRun: boolean): Promise<v
   core.info(
     `${heading} (${outcome.type}, previous ${outcome.previousVersion || 'none'})`,
   );
+  let storeSummary = 'not used';
+  if (outcome.storeResult === 'submitted') storeSummary = 'submitted for review';
+  if (outcome.storeResult === 'draft') storeSummary = 'uploaded as draft';
+  const reviewSummary = outcome.reviewCancelled
+    ? '\n\nPrevious pending review: cancelled.'
+    : '';
   await core.summary
     .addHeading(heading, SUMMARY_HEADING_LEVEL)
-    .addRaw(outcome.notes)
+    .addRaw(`\n\nChrome Web Store: ${storeSummary}.${reviewSummary}`)
+    .addRaw(`\n\n${outcome.notes}`)
     .write();
 }

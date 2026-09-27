@@ -70,6 +70,8 @@ function createDependencies(result: unknown = released, repositoryRoot = root) {
   const createStore = vi.fn(() => ({
     itemUrl: '',
     verify: vi.fn(),
+    hasPendingReview: vi.fn(),
+    cancelPendingSubmission: vi.fn(),
     upload: vi.fn(),
     submit: vi.fn(),
   }));
@@ -167,6 +169,8 @@ describe('release', () => {
       type: 'minor',
       notes: '## 2.1.0',
       packagePath: '',
+      reviewCancelled: false,
+      storeResult: undefined,
     });
   });
 

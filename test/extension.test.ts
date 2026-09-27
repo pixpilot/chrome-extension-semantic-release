@@ -27,6 +27,8 @@ function createStore(overrides: Partial<ChromeWebStore> = {}): ChromeWebStore {
   return {
     itemUrl: 'https://chromewebstore.google.com/detail/ext-id',
     verify: vi.fn(async () => {}),
+    hasPendingReview: vi.fn(async () => false),
+    cancelPendingSubmission: vi.fn(async () => true),
     upload: vi.fn(async () => {}),
     submit: vi.fn(async () => 'PENDING_REVIEW'),
     ...overrides,
@@ -120,7 +122,55 @@ describe('prepare', () => {
     await expect(readFile(manifest, 'utf8')).resolves.toContain('"version": "2.1.0"');
     expect(options.runShell).toHaveBeenCalledWith('pnpm run build', extension);
     expect(options.store?.upload).toHaveBeenCalledWith(options.packagePath);
+    expect(options.store?.cancelPendingSubmission).not.toHaveBeenCalled();
     expect(getPackagePath()).toBe(options.packagePath);
+  });
+
+  it('cancels a pending review before uploading the new package', async () => {
+    const calls: string[] = [];
+    const { plugin, wasReviewCancelled } = setup({
+      store: createStore({
+        hasPendingReview: vi.fn(async () => {
+          calls.push('status');
+          return true;
+        }),
+        cancelPendingSubmission: vi.fn(async () => {
+          calls.push('cancel');
+          return true;
+        }),
+        upload: vi.fn(async () => {
+          calls.push('upload');
+        }),
+        submit: vi.fn(async () => {
+          calls.push('submit');
+          return 'PENDING_REVIEW';
+        }),
+      }),
+    });
+
+    await plugin.prepare({}, { logger, nextRelease } as never);
+    await plugin.publish({}, { logger, nextRelease } as never);
+
+    expect(calls).toEqual(['status', 'cancel', 'upload', 'submit']);
+    expect(wasReviewCancelled()).toBe(true);
+    expect(logger.log).toHaveBeenCalledWith(
+      'Existing Chrome Web Store submission is pending review',
+    );
+  });
+
+  it('stops before upload when cancellation fails', async () => {
+    const store = createStore({
+      hasPendingReview: vi.fn(async () => true),
+      cancelPendingSubmission: vi.fn(async () => {
+        throw new Error('quota exceeded');
+      }),
+    });
+    const { plugin } = setup({ store });
+
+    await expect(plugin.prepare({}, { logger, nextRelease } as never)).rejects.toThrow(
+      'quota exceeded',
+    );
+    expect(store.upload).not.toHaveBeenCalled();
   });
 
   it('uploads the single zip in a package folder', async () => {

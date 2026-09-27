@@ -35,6 +35,8 @@ export interface ReleaseOutcome {
   readonly notes: string;
   /** Repository-relative path of the uploaded package. */
   readonly packagePath: string;
+  readonly reviewCancelled: boolean;
+  readonly storeResult: 'submitted' | 'draft' | undefined;
 }
 
 export interface ReleaseDependencies {
@@ -167,6 +169,8 @@ export async function release(
     result,
     inputs.dryRun,
     packagePath === undefined ? '' : fromRoot(packagePath),
+    extension.wasReviewCancelled(),
+    extension.getStoreResult(),
   );
 }
 
@@ -224,7 +228,13 @@ async function findLockfileScope(
   };
 }
 
-function toOutcome(result: Result, dryRun: boolean, packagePath: string): ReleaseOutcome {
+function toOutcome(
+  result: Result,
+  dryRun: boolean,
+  packagePath: string,
+  reviewCancelled: boolean,
+  storeResult: ReleaseOutcome['storeResult'],
+): ReleaseOutcome {
   // semantic-release resolves `false` when nothing is released, and an object
   // without `nextRelease` when it only added an existing release to a channel.
   if (result === false || !('nextRelease' in result)) {
@@ -236,6 +246,8 @@ function toOutcome(result: Result, dryRun: boolean, packagePath: string): Releas
       type: '',
       notes: '',
       packagePath,
+      reviewCancelled,
+      storeResult,
     };
   }
 
@@ -250,5 +262,7 @@ function toOutcome(result: Result, dryRun: boolean, packagePath: string): Releas
     type: nextRelease.type,
     notes: nextRelease.notes ?? '',
     packagePath,
+    reviewCancelled,
+    storeResult,
   };
 }

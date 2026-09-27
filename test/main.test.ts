@@ -17,6 +17,8 @@ const outcome = {
   type: 'minor',
   notes: '## 2.1.0',
   packagePath: 'apps/ext/package/ext-2.1.0.zip',
+  reviewCancelled: true,
+  storeResult: 'submitted' as const,
 };
 
 describe('run', () => {
@@ -40,6 +42,9 @@ describe('run', () => {
       ['package-path', 'apps/ext/package/ext-2.1.0.zip'],
     ]);
     expect(core.summary.addHeading).toHaveBeenCalledWith('Released ext-v2.1.0', 3);
+    expect(core.summary.addRaw).toHaveBeenCalledWith(
+      expect.stringContaining('Previous pending review: cancelled.'),
+    );
     expect(core.setFailed).not.toHaveBeenCalled();
   });
 
@@ -74,6 +79,7 @@ describe('run', () => {
     await run();
 
     expect(core.setFailed).toHaveBeenCalledWith('first problem\nsecond problem');
+    expect(core.summary.addHeading).toHaveBeenCalledWith('Extension release failed', 3);
   });
 
   it('only warns when the summary cannot be written after a release', async () => {
