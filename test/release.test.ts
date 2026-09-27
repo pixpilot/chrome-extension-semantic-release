@@ -123,7 +123,7 @@ describe('release', () => {
     });
     expect(options.plugins[4][1]).toMatchObject({
       successComment: false,
-      failComment: false,
+      failCommentCondition: false,
     });
     expect(config).toMatchObject({
       cwd: root,

@@ -135,7 +135,7 @@ export async function release(
     // monorepo, and failures are already reported by the workflow run.
     plugins.push([
       namedPlugin('@semantic-release/github', github),
-      { successComment: false, failComment: false, releasedLabels: false },
+      { successComment: false, failCommentCondition: false, releasedLabels: false },
     ]);
   }
 
